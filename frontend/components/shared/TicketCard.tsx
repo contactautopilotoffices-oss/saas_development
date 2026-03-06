@@ -128,6 +128,7 @@ export default function TicketCard({
                                 alt="Site photo"
                                 width={64}
                                 height={64}
+                                unoptimized
                                 className="w-[clamp(3.5rem,14cqw,4.5rem)] h-[auto] aspect-square rounded-xl object-cover"
                             />
                         </div>
