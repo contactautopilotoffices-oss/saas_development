@@ -279,17 +279,17 @@ const ElectricityReadingHistory: React.FC<ElectricityReadingHistoryProps> = ({
                                                 <div className="text-xs font-normal opacity-50">{log.meter.meter_number}</div>
                                             </td>
                                             <td className="px-6 py-4 text-right font-mono opacity-70">
-                                                {log.opening_reading.toFixed(1)}
+                                                {log.opening_reading.toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 3 })}
                                             </td>
                                             <td className="px-6 py-4 text-right font-mono font-bold">
-                                                {log.closing_reading.toFixed(1)}
+                                                {log.closing_reading.toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 3 })}
                                             </td>
                                             <td className="px-6 py-4 text-right font-mono text-xs opacity-50">
-                                                {log.computed_units.toFixed(1)}
+                                                {log.computed_units.toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 3 })}
                                             </td>
                                             <td className="px-6 py-4 text-right font-mono text-xs opacity-50">
                                                 {log.final_units && log.computed_units > 0
-                                                    ? (log.final_units / log.computed_units).toFixed(1)
+                                                    ? (log.final_units / log.computed_units).toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 3 })
                                                     : '1.0'}
                                             </td>
                                             <td className="px-6 py-4 text-right">
@@ -297,7 +297,7 @@ const ElectricityReadingHistory: React.FC<ElectricityReadingHistoryProps> = ({
                                                     ? (isDark ? 'bg-emerald-500/10 text-emerald-400' : 'bg-emerald-50 text-emerald-600')
                                                     : (isDark ? 'bg-slate-800 text-slate-500' : 'bg-slate-100 text-slate-400')
                                                     }`}>
-                                                    {(log.final_units ?? log.computed_units ?? 0).toFixed(1)} kVAh
+                                                    {(log.final_units ?? log.computed_units ?? 0).toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 3 })} kVAh
                                                 </span>
                                             </td>
                                             <td className="px-6 py-4 text-right whitespace-nowrap">

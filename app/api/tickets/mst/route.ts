@@ -61,9 +61,10 @@ export async function GET(request: NextRequest) {
         // Base ticket select query with relations
         const ticketSelect = `
             *,
-            assignee:users!assigned_to(id, full_name, email),
+            assignee:users!assigned_to(id, full_name, email, user_photo_url),
             creator:users!raised_by(id, full_name, email),
-            property:properties(id, name, code)
+            property:properties(id, name, code),
+            ticket_escalation_logs(from_level, to_level, escalated_at, from_employee:users!from_employee_id(full_name, user_photo_url), to_employee:users!to_employee_id(full_name, user_photo_url))
         `;
 
         switch (view) {

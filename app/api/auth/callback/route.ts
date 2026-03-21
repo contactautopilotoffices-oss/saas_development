@@ -59,7 +59,7 @@ export async function GET(request: Request) {
                 email: user.email!,
                 phone: user.phone || user.user_metadata.phone || null,
                 metadata: user.user_metadata
-            }).select('is_master_admin').single();
+            }).select('is_master_admin, onboarding_completed').single();
 
             if (profileError) console.error('Profile Error:', profileError.message);
 
@@ -146,12 +146,17 @@ export async function GET(request: Request) {
                 }
             }
 
-            // STEP 4: No Membership Found -> Redirect to login with error
+            // STEP 4: No Membership Found
+            // If onboarding not completed → new user or re-registered after deletion → go to onboarding
+            // Otherwise → existing user who was removed from property → show error
+            if (!dbUser?.onboarding_completed) {
+                return NextResponse.redirect(`${requestUrl.origin}/onboarding`);
+            }
             return NextResponse.redirect(`${requestUrl.origin}/login?error=no_access`);
         }
     }
 
-    // Return to home if failed
-    return NextResponse.redirect(`${requestUrl.origin}/`);
+    // Fallback — no code param or user was null after exchange
+    return NextResponse.redirect(`${requestUrl.origin}/login?error=auth_failed`);
 }
 

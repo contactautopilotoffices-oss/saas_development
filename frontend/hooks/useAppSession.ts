@@ -87,7 +87,7 @@ export function useAppSession() {
                 role: resolvedRole as any,
                 org_id: resolvedOrgId,
                 property_ids: finalPropertyIds,
-                available_modules: ['ticketing', 'viewer', 'analytics', 'stock', 'sop']
+                available_modules: ['ticketing', 'viewer', 'analytics', 'stock', 'checklist']
             });
             setIsLoading(false);
         }

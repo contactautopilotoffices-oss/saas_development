@@ -5,7 +5,7 @@ import {
     LayoutDashboard, Ticket, Clock, CheckCircle2, AlertCircle, Plus,
     LogOut, Settings, Search, UserCircle, Coffee, Fuel, UsersRound,
     ClipboardList, FolderKanban, Moon, Sun, ChevronRight, Cog, X,
-    AlertOctagon, BarChart3, FileText, Wrench, Camera, Menu, Pencil, Loader2, Filter, Activity, Zap, Calendar, ClipboardCheck
+    AlertOctagon, BarChart3, FileText, Wrench, Camera, Menu, Pencil, Loader2, Filter, Activity, Zap, Calendar, ClipboardCheck, ScanLine
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { createClient } from '@/frontend/utils/supabase/client';
@@ -28,9 +28,10 @@ import { ShiftToast } from '@/frontend/components/mst/ShiftStatus';
 import NavbarShiftStatus from '@/frontend/components/mst/NavbarShiftStatus';
 import TicketCard from '@/frontend/components/shared/TicketCard';
 import SOPDashboard from '@/frontend/components/sop/SOPDashboard';
+import UniversalQRScannerModal from '@/frontend/components/shared/UniversalQRScannerModal';
 
 // Types
-type Tab = 'dashboard' | 'requests' | 'create_request' | 'visitors' | 'diesel' | 'electricity' | 'settings' | 'profile' | 'flow-map' | 'sop';
+type Tab = 'dashboard' | 'requests' | 'create_request' | 'visitors' | 'diesel' | 'electricity' | 'settings' | 'profile' | 'flow-map' | 'checklist';
 
 interface Property {
     id: string;
@@ -59,6 +60,7 @@ interface Ticket {
     internal?: boolean;
     property_id?: string;
     creator?: { property_memberships?: { role: string; property_id: string }[] };
+    ticket_escalation_logs?: { from_level: number; to_level: number | null; escalated_at: string; from_employee?: { full_name: string; user_photo_url?: string | null } | null; to_employee?: { full_name: string; user_photo_url?: string | null } | null }[];
 }
 
 const MstDashboard = () => {
@@ -81,6 +83,7 @@ const MstDashboard = () => {
     const [isFetching, setIsFetching] = useState(false);
     const [userRole, setUserRole] = useState('MST Professional');
     const [sidebarOpen, setSidebarOpen] = useState(false);
+    const [showQRScanner, setShowQRScanner] = useState(false);
     const [searchQuery, setSearchQuery] = useState('');
     const searchParams = useSearchParams();
     const { getCachedData, setCachedData } = useDataCache();
@@ -246,8 +249,9 @@ const MstDashboard = () => {
             .from('tickets')
             .select(`
                 *,
-                assignee:users!assigned_to(id, full_name, email),
-                creator:users!raised_by(property_memberships(role, property_id))
+                assignee:users!assigned_to(id, full_name, email, user_photo_url),
+                creator:users!raised_by(property_memberships(role, property_id)),
+                ticket_escalation_logs(from_level, to_level, escalated_at, from_employee:users!from_employee_id(full_name, user_photo_url), to_employee:users!to_employee_id(full_name, user_photo_url))
             `)
             .eq('property_id', propertyId)
             .order('created_at', { ascending: false });
@@ -493,6 +497,15 @@ const MstDashboard = () => {
                                 </div>
                                 <span className="text-[10px] font-black uppercase tracking-widest">New Request</span>
                             </button>
+                            <button
+                                onClick={() => { setSidebarOpen(false); setShowQRScanner(true); }}
+                                className="w-full flex items-center gap-2.5 px-3 py-2 bg-surface-elevated text-text-primary rounded-xl hover:bg-muted transition-all border border-border group shadow-sm"
+                            >
+                                <div className="w-7 h-7 bg-primary/20 rounded-lg flex items-center justify-center text-primary group-hover:scale-105 transition-transform">
+                                    <ScanLine className="w-4 h-4" />
+                                </div>
+                                <span className="text-[10px] font-black uppercase tracking-widest">Scan QR</span>
+                            </button>
                         </div>
                     )}
                 </div>
@@ -578,8 +591,8 @@ const MstDashboard = () => {
                                 Electricity Logger
                             </button>
                             <button
-                                onClick={() => handleTabChange('sop')}
-                                className={`w-full flex items-center gap-2.5 px-2.5 py-2.5 rounded-lg transition-all text-sm font-bold ${activeTab === 'sop'
+                                onClick={() => handleTabChange('checklist')}
+                                className={`w-full flex items-center gap-2.5 px-2.5 py-2.5 rounded-lg transition-all text-sm font-bold ${activeTab === 'checklist'
                                     ? 'bg-primary text-text-inverse shadow-sm'
                                     : 'text-text-secondary hover:bg-muted hover:text-text-primary'
                                     }`}
@@ -664,7 +677,7 @@ const MstDashboard = () => {
 
                 {/* Page Content */}
                 {/* Page Content */}
-                <main className={`flex-1 w-full min-h-0 overflow-y-auto overflow-x-hidden ${activeTab === 'sop' ? 'p-0' : 'p-2 sm:p-4 md:p-6'} bg-slate-50/50`}>
+                <main className={`flex-1 w-full min-h-0 overflow-y-auto overflow-x-hidden ${activeTab === 'checklist' ? 'p-0' : 'p-2 sm:p-4 md:p-6'} bg-slate-50/50`}>
 
                     <AnimatePresence mode="wait">
                         <motion.div
@@ -744,7 +757,7 @@ const MstDashboard = () => {
                             )}
                             {activeTab === 'diesel' && <DieselStaffDashboard isDark={isDarkMode} />}
                             {activeTab === 'electricity' && property && <ElectricityStaffDashboard propertyId={property.id} isDark={isDarkMode} />}
-                            {activeTab === 'sop' && property && <SOPDashboard propertyId={property.id} />}
+                            {activeTab === 'checklist' && property && <SOPDashboard propertyId={property.id} />}
                             {activeTab === 'settings' && <SettingsView />}
                             {activeTab === 'profile' && (
                                 <div className="flex justify-center items-start py-8">
@@ -835,6 +848,22 @@ const MstDashboard = () => {
                 onClose={() => setShowSignOutModal(false)}
                 onConfirm={signOut}
             />
+
+            {showQRScanner && (
+                <UniversalQRScannerModal
+                    onResult={(result) => {
+                        setShowQRScanner(false);
+                        if (result.type === 'checklist') {
+                            router.push(`/checklist/${result.templateId}`);
+                        } else if (result.type === 'stock') {
+                            router.push(`/properties/${propertyId}/stock?item=${result.itemId}`);
+                        } else if (result.type === 'barcode') {
+                            router.push(`/properties/${propertyId}/stock?barcode=${encodeURIComponent(result.value)}`);
+                        }
+                    }}
+                    onClose={() => setShowQRScanner(false)}
+                />
+            )}
 
             <ShiftToast
                 message={toast.message}
@@ -1010,8 +1039,10 @@ const DashboardTab = ({ tickets, completedCount, onTicketClick, userId, isLoadin
                                     ticketNumber={ticket.ticket_number}
                                     createdAt={ticket.created_at}
                                     assignedTo={ticket.assignee?.full_name}
+                                    assigneePhotoUrl={(ticket.assignee as any)?.user_photo_url}
                                     photoUrl={ticket.photo_before_url}
                                     isSlaPaused={ticket.sla_paused}
+                                    escalationChain={(() => { const logs = ticket.ticket_escalation_logs; if (!logs || logs.length === 0) return undefined; const sorted = [...logs].sort((a, b) => new Date(a.escalated_at).getTime() - new Date(b.escalated_at).getTime()); const chain: { name: string; avatar?: string | null }[] = []; sorted.forEach((log, i) => { if (i === 0 && log.from_employee?.full_name) chain.push({ name: log.from_employee.full_name, avatar: log.from_employee.user_photo_url }); if (log.to_employee?.full_name) chain.push({ name: log.to_employee.full_name, avatar: log.to_employee.user_photo_url }); }); return chain.length > 0 ? chain : undefined; })()}
                                     raisedByTenant={((ticket.creator as any)?.property_memberships || []).some((m: any) => m.property_id === ticket.property_id && ['tenant', 'super_tenant'].includes((m.role || '').toLowerCase()))}
                                     onClick={() => onTicketClick?.(ticket.id)}
                                     onEdit={onEditClick ? (e) => onEditClick(e, ticket) : undefined}
@@ -1171,8 +1202,10 @@ const RequestsTab = ({ activeTickets = [], completedTickets = [], onTicketClick,
                                     ticketNumber={ticket.ticket_number}
                                     createdAt={ticket.created_at}
                                     assignedTo={ticket.assignee?.full_name}
+                                    assigneePhotoUrl={(ticket.assignee as any)?.user_photo_url}
                                     photoUrl={ticket.photo_before_url}
                                     isSlaPaused={ticket.sla_paused}
+                                    escalationChain={(() => { const logs = ticket.ticket_escalation_logs; if (!logs || logs.length === 0) return undefined; const sorted = [...logs].sort((a, b) => new Date(a.escalated_at).getTime() - new Date(b.escalated_at).getTime()); const chain: { name: string; avatar?: string | null }[] = []; sorted.forEach((log, i) => { if (i === 0 && log.from_employee?.full_name) chain.push({ name: log.from_employee.full_name, avatar: log.from_employee.user_photo_url }); if (log.to_employee?.full_name) chain.push({ name: log.to_employee.full_name, avatar: log.to_employee.user_photo_url }); }); return chain.length > 0 ? chain : undefined; })()}
                                     raisedByTenant={((ticket.creator as any)?.property_memberships || []).some((m: any) => m.property_id === ticket.property_id && ['tenant', 'super_tenant'].includes((m.role || '').toLowerCase()))}
                                     onClick={() => onTicketClick?.(ticket.id)}
                                     onEdit={onEditClick ? (e) => onEditClick(e, ticket) : undefined}

@@ -92,8 +92,8 @@ export async function POST(request: NextRequest) {
         try {
             const { NotificationService } = await import('@/backend/services/NotificationService');
             if (newAssigneeId) {
-                NotificationService.afterTicketAssigned(ticketId).catch(err => {
-                    console.error('[Reassign API] Assignment Notification error:', err);
+                NotificationService.afterTicketReassigned(ticketId).catch(err => {
+                    console.error('[Reassign API] Reassign Notification error:', err);
                 });
             } else {
                 NotificationService.afterTicketWaitlisted(ticketId).catch(err => {

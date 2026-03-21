@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
     ArrowRight, ArrowLeft, Building2, UserCircle2,
@@ -225,8 +225,9 @@ export default function OnboardingPage() {
         setError('');
 
         try {
-            const { data: { user: authUser }, error: userError } = await supabase.auth.getUser();
-            if (!authUser || userError) throw new Error('Not authenticated');
+            // Use the user from AuthContext directly — avoids session issues with Google OAuth
+            // where the server-side session exchange may not be reflected in client getUser()
+            const authUser = user;
 
             // Resolve Property ID
             let finalPropId = selectedProperty.id;
@@ -354,13 +355,15 @@ export default function OnboardingPage() {
                 }
             }
 
-            // 3️⃣ Update user profile with phone and onboarding status (Always run)
+            // 3️⃣ Update user profile with phone (if filled) and onboarding status
+            const profileUpdate: any = { onboarding_completed: true };
+            if (phoneNumber.trim().length >= 10) {
+                profileUpdate.phone = phoneNumber.trim();
+            }
+
             const { error: userUpdateError } = await supabase
                 .from('users')
-                .update({
-                    onboarding_completed: true,
-                    phone: phoneNumber
-                } as any)
+                .update(profileUpdate)
                 .eq('id', authUser.id);
 
             if (userUpdateError) {
@@ -416,7 +419,7 @@ export default function OnboardingPage() {
     const canProceed = () => {
         switch (step) {
             case 0: return true;
-            case 1: return phoneNumber.length >= 10;
+            case 1: return phoneNumber.length === 0 || phoneNumber.length >= 10;
             case 2: return selectedProperty !== null;
             case 3: return selectedRole !== null;
             case 4: return selectedSkills.length > 0;
@@ -492,7 +495,7 @@ export default function OnboardingPage() {
                                     <Phone className="w-8 h-8 text-white" />
                                 </div>
                                 <h2 className="text-3xl font-black text-white mb-2 text-center">Contact Details</h2>
-                                <p className="text-slate-400 font-medium mb-8 text-center">Please enter your valid phone number</p>
+                                <p className="text-slate-400 font-medium mb-8 text-center">Enter your phone number <span className="text-slate-500 text-sm">(optional)</span></p>
 
                                 <div className="w-full max-w-sm">
                                     <input

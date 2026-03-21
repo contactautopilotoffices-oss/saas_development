@@ -94,6 +94,7 @@ export interface MstTicketView {
     property_id: string;
     organization_id: string;
     internal?: boolean;
+    ticket_escalation_logs?: { from_level: number; to_level: number | null; escalated_at: string; from_employee?: { full_name: string; user_photo_url?: string | null } | null; to_employee?: { full_name: string; user_photo_url?: string | null } | null }[];
 }
 
 // MST workload tracking

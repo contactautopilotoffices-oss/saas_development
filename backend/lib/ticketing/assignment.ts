@@ -135,15 +135,14 @@ export async function processIntelligentAssignment(
             }
 
             // Update database
-            const { error: updateError } = await supabase
-                .from('tickets')
-                .update({
-                    status: status,
-                    assigned_to: assignedTo,
-                    assigned_at: assignedTo ? new Date().toISOString() : null,
-                    work_started_at: assignedTo ? new Date().toISOString() : null,
-                })
-                .eq('id', ticket.id);
+                const { error: updateError } = await supabase
+                    .from('tickets')
+                    .update({
+                        status: status,
+                        assigned_to: assignedTo,
+                        assigned_at: assignedTo ? new Date().toISOString() : null,
+                    })
+                    .eq('id', ticket.id);
 
             if (updateError) throw updateError;
 

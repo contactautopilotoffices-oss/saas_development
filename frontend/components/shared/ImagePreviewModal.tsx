@@ -17,7 +17,7 @@ const ImagePreviewModal: React.FC<ImagePreviewModalProps> = ({ isOpen, onClose, 
     const handleDownload = () => {
         const link = document.createElement('a');
         link.href = imageUrl;
-        link.download = `sop-audit-proof-${Date.now()}.webp`;
+        link.download = `checklist-audit-proof-${Date.now()}.webp`;
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
@@ -50,7 +50,7 @@ const ImagePreviewModal: React.FC<ImagePreviewModalProps> = ({ isOpen, onClose, 
                                     {title || 'Photo Preview'}
                                 </h3>
                                 <p className="text-[10px] md:text-xs font-medium text-slate-500 uppercase tracking-widest">
-                                    SOP Visual Proof
+                                    Checklist Visual Proof
                                 </p>
                             </div>
                             <div className="flex items-center gap-2">

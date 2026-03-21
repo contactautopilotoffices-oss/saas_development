@@ -2,21 +2,25 @@
 
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '@/frontend/context/AuthContext';
-import { createClient } from '@/frontend/utils/supabase/client';
 import Skeleton from '@/frontend/components/ui/Skeleton';
 import { Toast } from '@/frontend/components/ui/Toast';
-import { ClipboardCheck, History, LayoutGrid } from 'lucide-react';
+import { ClipboardCheck, ScanLine } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import SOPTemplateManager from './SOPTemplateManager';
 import SOPCompletionHistory from './SOPCompletionHistory';
 import SOPChecklistRunner from './SOPChecklistRunner';
 import SOPCompletionDetail from './SOPCompletionDetail';
+import UniversalQRScannerModal from '@/frontend/components/shared/UniversalQRScannerModal';
 
 interface SOPDashboardProps {
-    propertyId: string;
+    propertyId?: string;
+    propertyIds?: string[];
+    propertySelector?: React.ReactNode;
+    headerRight?: React.ReactNode;
 }
 
-const SOPDashboard: React.FC<SOPDashboardProps> = ({ propertyId }) => {
+const SOPDashboard: React.FC<SOPDashboardProps> = ({ propertyId, propertyIds, propertySelector, headerRight }) => {
+    const isMultiProperty = !!propertyIds && propertyIds.length > 0;
     const { membership } = useAuth();
     const [activeView, setActiveView] = useState<'list' | 'runner' | 'history' | 'detail'>('list');
     const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null);
@@ -25,7 +29,7 @@ const SOPDashboard: React.FC<SOPDashboardProps> = ({ propertyId }) => {
     const [isLoading, setIsLoading] = useState(true);
     const [userRole, setUserRole] = useState<string>('');
     const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
-    const supabase = React.useMemo(() => createClient(), []);
+    const [showScanner, setShowScanner] = useState(false);
 
     useEffect(() => {
         // Determine user role for this property
@@ -87,38 +91,34 @@ const SOPDashboard: React.FC<SOPDashboardProps> = ({ propertyId }) => {
             <div className="max-w-7xl mx-auto space-y-2 md:space-y-3">
                 {/* Compact Header */}
                 <div className="flex items-center justify-between gap-2 px-3 pt-2 md:px-2 md:pt-0">
-                    <div className="flex items-center gap-2">
-                        <div className="w-7 h-7 md:w-8 md:h-8 rounded-lg bg-primary/10 flex items-center justify-center text-primary shadow-sm flex-shrink-0">
-                            <ClipboardCheck size={16} />
-                        </div>
-                        <h4 className="text-sm font-black text-slate-900 tracking-tight">{isAdmin ? 'Checklist Manager' : 'My Checklist'}</h4>
-                    </div>
-
-                    {/* Tab Switcher - Only for admins */}
-                    {isAdmin && (
-                        <div className="bg-white p-0.5 md:p-1 rounded-lg md:rounded-xl shadow-sm border border-slate-200 flex items-center gap-0.5">
-                            <button
-                                onClick={() => setActiveView('list')}
-                                className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md md:rounded-lg font-black text-[9px] md:text-[10px] uppercase tracking-wider transition-all duration-200 ${activeView === 'list'
-                                    ? 'bg-primary text-white shadow-lg shadow-primary/20'
-                                    : 'text-slate-400 hover:text-slate-600 hover:bg-slate-50'
-                                    }`}
-                            >
-                                <LayoutGrid size={11} />
-                                Templates
-                            </button>
-                            <button
-                                onClick={() => setActiveView('history')}
-                                className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md md:rounded-lg font-black text-[9px] md:text-[10px] uppercase tracking-wider transition-all duration-200 ${activeView === 'history'
-                                    ? 'bg-primary text-white shadow-lg shadow-primary/20'
-                                    : 'text-slate-400 hover:text-slate-600 hover:bg-slate-50'
-                                    }`}
-                            >
-                                <History size={11} />
-                                History
-                            </button>
+                    {/* Left: icon + title (hidden when propertySelector provided) */}
+                    {!propertySelector && (
+                        <div className="flex items-center gap-2">
+                            <div className="w-7 h-7 md:w-8 md:h-8 rounded-lg bg-primary/10 flex items-center justify-center text-primary shadow-sm flex-shrink-0">
+                                <ClipboardCheck size={16} />
+                            </div>
+                            <h4 className="text-sm font-black text-slate-900 tracking-tight">{isAdmin ? 'Checklist Manager' : 'My Checklist'}</h4>
                         </div>
                     )}
+
+                    {/* Property selector slot (org admin) */}
+                    {propertySelector && (
+                        <div className="flex-shrink-0">{propertySelector}</div>
+                    )}
+
+                    {/* Scan QR - Only for non-admin (MST/staff) */}
+                    {!isAdmin && (
+                        <button
+                            onClick={() => setShowScanner(true)}
+                            className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-900 text-white rounded-lg hover:bg-primary transition-all font-black uppercase tracking-widest text-[9px] md:text-[10px]"
+                        >
+                            <ScanLine size={12} />
+                            Scan QR
+                        </button>
+                    )}
+
+                    {/* Right side: headerRight (notification bell etc) */}
+                    {headerRight && <div className="flex-shrink-0">{headerRight}</div>}
                 </div>
 
                 {/* Content Area */}
@@ -138,16 +138,20 @@ const SOPDashboard: React.FC<SOPDashboardProps> = ({ propertyId }) => {
                                 {isAdmin && activeView === 'list' && (
                                     <SOPTemplateManager
                                         propertyId={propertyId}
+                                        propertyIds={isMultiProperty ? propertyIds : undefined}
                                         isAdmin={isAdmin}
                                         userRole={userRole}
                                         onSelectTemplate={handleStartChecklist}
                                         onRefresh={() => { }}
+                                        activeView="list"
+                                        onViewChange={(v) => setActiveView(v)}
                                     />
                                 )}
 
                                 {(activeView === 'history' || (!isAdmin && activeView === 'list')) && (
                                     <SOPCompletionHistory
                                         propertyId={propertyId}
+                                        propertyIds={isMultiProperty ? propertyIds : undefined}
                                         isAdmin={isAdmin}
                                         userRole={userRole}
                                         onSelectTemplate={handleStartChecklist}
@@ -155,13 +159,15 @@ const SOPDashboard: React.FC<SOPDashboardProps> = ({ propertyId }) => {
                                             setViewingCompletionId(id);
                                             setActiveView('detail');
                                         }}
+                                        activeView="history"
+                                        onViewChange={isAdmin ? (v) => setActiveView(v) : undefined}
                                     />
                                 )}
 
                                 {activeView === 'detail' && viewingCompletionId && (
                                     <SOPCompletionDetail
                                         completionId={viewingCompletionId}
-                                        propertyId={propertyId}
+                                        propertyId={propertyId!}
                                         isAdmin={isAdmin}
                                         onBack={() => {
                                             setActiveView('history');
@@ -175,8 +181,8 @@ const SOPDashboard: React.FC<SOPDashboardProps> = ({ propertyId }) => {
                                         <SOPChecklistRunner
                                             templateId={selectedTemplateId}
                                             completionId={selectedCompletionId || undefined}
-                                            isAdmin={isAdmin}
-                                            propertyId={propertyId}
+                                            isSuperAdmin={['org_admin', 'org_super_admin', 'master_admin'].includes(userRole.toLowerCase())}
+                                            propertyId={propertyId!}
                                             onComplete={handleChecklistComplete}
                                             onCancel={() => {
                                                 setActiveView(isAdmin ? 'list' : 'history');
@@ -191,6 +197,19 @@ const SOPDashboard: React.FC<SOPDashboardProps> = ({ propertyId }) => {
                     </div>
                 </motion.div>
             </div>
+
+            {showScanner && (
+                <UniversalQRScannerModal
+                    onResult={(result) => {
+                        setShowScanner(false);
+                        if (result.type === 'checklist') {
+                            handleStartChecklist(result.templateId);
+                        }
+                        // stock/barcode types not applicable in checklist context
+                    }}
+                    onClose={() => setShowScanner(false)}
+                />
+            )}
 
             {/* Toast Notification */}
             {toast && (

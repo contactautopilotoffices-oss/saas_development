@@ -46,7 +46,19 @@ interface Ticket {
     photo_before_url?: string;
     raised_by?: string;
     sla_paused?: boolean;
-    assignee?: { full_name: string };
+    assignee?: { full_name: string; user_photo_url?: string | null };
+    ticket_escalation_logs?: { from_level: number; to_level: number | null; escalated_at: string; from_employee?: { full_name: string; user_photo_url?: string | null } | null; to_employee?: { full_name: string; user_photo_url?: string | null } | null }[];
+}
+
+function buildEscalationChain(logs?: Ticket['ticket_escalation_logs']): { name: string; avatar?: string | null }[] | undefined {
+    if (!logs || logs.length === 0) return undefined;
+    const sorted = [...logs].sort((a, b) => new Date(a.escalated_at).getTime() - new Date(b.escalated_at).getTime());
+    const chain: { name: string; avatar?: string | null }[] = [];
+    sorted.forEach((log, i) => {
+        if (i === 0 && log.from_employee?.full_name) chain.push({ name: log.from_employee.full_name, avatar: log.from_employee.user_photo_url });
+        if (log.to_employee?.full_name) chain.push({ name: log.to_employee.full_name, avatar: log.to_employee.user_photo_url });
+    });
+    return chain.length > 0 ? chain : undefined;
 }
 
 const TenantDashboard = () => {
@@ -153,7 +165,7 @@ const TenantDashboard = () => {
 
         const { data, error } = await supabase
             .from('tickets')
-            .select('*, assignee:users!assigned_to(full_name)')
+            .select('*, assignee:users!assigned_to(full_name, user_photo_url), ticket_escalation_logs(from_level, to_level, escalated_at, from_employee:users!from_employee_id(full_name, user_photo_url), to_employee:users!to_employee_id(full_name, user_photo_url))')
             .eq('property_id', propertyId)
             .eq('internal', false)
             .order('created_at', { ascending: false });
@@ -779,7 +791,7 @@ const OverviewTab = ({ onNavigate, property, onMenuToggle }: { onNavigate: (tab:
         const fetchCounts = async () => {
             if (!user?.id || !propertyId) return;
 
-            // Fetch Ticket Counts
+            // Fetch Ticket Counts — all non-internal tickets for this property
             const { data: tickets } = await supabase
                 .from('tickets')
                 .select('status')
@@ -1003,7 +1015,8 @@ const RequestsTab = ({ activeTickets, completedTickets, onNavigate, isLoading, o
                                             photoUrl={ticket.photo_before_url}
                                             isSlaPaused={ticket.sla_paused}
                                             assignedTo={ticket.assignee?.full_name}
-                                            raisedByTenant={true}
+                                            escalationChain={buildEscalationChain(ticket.ticket_escalation_logs)}
+                                            raisedByTenant={ticket.raised_by === user?.id}
                                             onClick={() => router.push(`/tickets/${ticket.id}?from=requests`)}
                                             onEdit={!isCompleted && !isPendingValidation && onEditClick ? (e) => onEditClick(e, ticket) : undefined}
                                             onDelete={onDeleteClick ? (e) => onDeleteClick(e, ticket.id) : undefined}
@@ -1051,9 +1064,10 @@ const RequestsTab = ({ activeTickets, completedTickets, onNavigate, isLoading, o
                                     photoUrl={ticket.photo_before_url}
                                     isSlaPaused={ticket.sla_paused}
                                     assignedTo={ticket.assignee?.full_name}
-                                    raisedByTenant={true}
+                                    assigneePhotoUrl={ticket.assignee?.user_photo_url}
+                                    escalationChain={buildEscalationChain(ticket.ticket_escalation_logs)}
+                                    raisedByTenant={ticket.raised_by === user?.id}
                                     onClick={() => router.push(`/tickets/${ticket.id}?from=requests`)}
-                                    // Allow edit only if not completed
                                     onEdit={onEditClick ? (e) => onEditClick(e, ticket) : undefined}
                                     onDelete={onDeleteClick ? (e) => onDeleteClick(e, ticket.id) : undefined}
                                 />

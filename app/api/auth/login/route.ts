@@ -19,9 +19,10 @@ export async function POST(request: NextRequest) {
         });
 
         if (error) {
+            const isFetchError = error.message?.toLowerCase().includes('fetch failed') || error.message?.toLowerCase().includes('network');
             return NextResponse.json(
-                { error: error.message },
-                { status: 400 }
+                { error: isFetchError ? 'Unable to reach authentication server. Please try again.' : error.message },
+                { status: isFetchError ? 503 : 400 }
             );
         }
 

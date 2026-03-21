@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/frontend/utils/supabase/server';
+import { supabaseAdmin } from '@/backend/lib/supabase/admin';
 import { NotificationService } from '@/backend/services/NotificationService';
 
 /**
@@ -76,7 +77,27 @@ export async function POST(request: NextRequest) {
             return NextResponse.json({ error: 'Cannot book for a past date/time' }, { status: 400 });
         }
 
-        // 2. Check for overlaps (double check)
+        // 2. Calculate duration in hours
+        const [startH, startM] = startTime.split(':').map(Number);
+        const [endH, endM] = endTime.split(':').map(Number);
+        const durationHours = (endH * 60 + endM - startH * 60 - startM) / 60;
+
+        // 3. Check credit balance
+        const { data: credit } = await supabaseAdmin
+            .from('meeting_room_credits')
+            .select('id, remaining_hours')
+            .eq('property_id', propertyId)
+            .eq('user_id', user.id)
+            .single();
+
+        // Only enforce credits if a record exists (admins without a record can still book)
+        if (credit && credit.remaining_hours < durationHours) {
+            return NextResponse.json({
+                error: `Insufficient meeting room credits. You need ${durationHours}h but only have ${credit.remaining_hours}h remaining.`
+            }, { status: 402 });
+        }
+
+        // 4. Check for overlaps (double check)
         const { data: overlaps, error: overlapError } = await supabase
             .from('meeting_room_bookings')
             .select('id')
@@ -113,6 +134,26 @@ export async function POST(request: NextRequest) {
         if (insertError) {
             console.error('Booking creation error:', insertError);
             return NextResponse.json({ error: 'Failed to create booking' }, { status: 500 });
+        }
+
+        // Deduct credits if tenant has a credit record
+        if (credit) {
+            const newRemaining = Math.max(0, credit.remaining_hours - durationHours);
+            await supabaseAdmin
+                .from('meeting_room_credits')
+                .update({ remaining_hours: newRemaining, updated_at: new Date().toISOString() })
+                .eq('id', credit.id);
+
+            await supabaseAdmin.from('meeting_room_credit_log').insert({
+                credit_id: credit.id,
+                user_id: user.id,
+                action: 'deducted',
+                hours_changed: -durationHours,
+                hours_after: newRemaining,
+                booking_id: booking.id,
+                performed_by: user.id,
+                notes: `Booking deduction: ${durationHours}h`,
+            });
         }
 
         // Trigger notification asynchronously

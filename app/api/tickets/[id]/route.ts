@@ -21,8 +21,8 @@ export async function GET(
         *,
         category:issue_categories(id, code, name, icon),
         skill_group:skill_groups(id, code, name),
-        creator:users!raised_by(id, full_name, email, avatar_url),
-        assignee:users!assigned_to(id, full_name, email, avatar_url),
+        creator:users!raised_by(id, full_name, email, user_photo_url),
+        assignee:users!assigned_to(id, full_name, email, user_photo_url),
         organization:organizations(id, name, code),
         property:properties(id, name, code)
       `)
@@ -36,7 +36,7 @@ export async function GET(
         // Get comments
         const { data: comments } = await supabase
             .from('ticket_comments')
-            .select(`*, user:users(id, full_name, email, avatar_url)`)
+            .select(`*, user:users(id, full_name, email, user_photo_url)`)
             .eq('ticket_id', ticketId)
             .order('created_at', { ascending: true });
 
@@ -49,6 +49,13 @@ export async function GET(
             .eq('ticket_id', ticketId)
             .order('created_at', { ascending: false })
             .limit(50);
+
+        // Get escalation logs
+        const { data: escalationLogs } = await adminSupabase
+            .from('ticket_escalation_logs')
+            .select(`*, from_employee:users!from_employee_id(id, full_name, user_photo_url), to_employee:users!to_employee_id(id, full_name, user_photo_url)`)
+            .eq('ticket_id', ticketId)
+            .order('escalated_at', { ascending: true });
 
         // Check if validation is enabled for this property
         const { data: feature } = await adminSupabase
@@ -69,7 +76,7 @@ export async function GET(
             { step: 'Completed', completed: ticket.status === 'resolved' || ticket.status === 'closed', time: ticket.resolved_at },
         ];
 
-        return NextResponse.json({ ticket, comments: comments || [], activities: activities || [], timeline, validationEnabled });
+        return NextResponse.json({ ticket, comments: comments || [], activities: activities || [], escalationLogs: escalationLogs || [], timeline, validationEnabled });
     } catch (error) {
         console.error('Ticket detail error:', error);
         return NextResponse.json({ error: 'Internal server error' }, { status: 500 });

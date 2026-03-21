@@ -8,6 +8,9 @@ const withSerwist = withSerwistInit({
 });
 
 const nextConfig: NextConfig = {
+  // Allow localtunnel domains in dev
+  allowedDevOrigins: ['*.loca.lt'],
+
   // Optimized standalone output for Vercel deployment
   // output: 'standalone',
 
@@ -19,6 +22,9 @@ const nextConfig: NextConfig = {
 
   // React strict mode for catching potential problems
   reactStrictMode: true,
+
+  // Silence Turbopack warning in dev (serwist adds a webpack config)
+  turbopack: {},
 
   images: {
     remotePatterns: [

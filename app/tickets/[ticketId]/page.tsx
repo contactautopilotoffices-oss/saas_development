@@ -75,6 +75,9 @@ interface Ticket {
     property?: { name: string };
     creator?: { id: string; full_name: string; email: string };
     assignee?: { id: string; full_name: string; email: string };
+    current_escalation_level?: number;
+    hierarchy_id?: string | null;
+    escalation_paused?: boolean;
 }
 
 interface Activity {
@@ -86,13 +89,23 @@ interface Activity {
     new_value?: string;
 }
 
+interface EscalationLog {
+    id: string;
+    from_level: number;
+    to_level: number | null;
+    reason: string;
+    escalated_at: string;
+    from_employee?: { full_name: string; user_photo_url?: string | null } | null;
+    to_employee?: { full_name: string; user_photo_url?: string | null } | null;
+}
+
 interface Comment {
     id: string;
     comment: string;
     created_at: string;
     user_id: string;
     is_internal: boolean;
-    user?: { full_name: string; avatar_url?: string };
+    user?: { full_name: string; user_photo_url?: string };
 }
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -115,6 +128,7 @@ export default function TicketDetailPage() {
     const [ticket, setTicket] = useState<Ticket | null>(null);
     const [activities, setActivities] = useState<Activity[]>([]);
     const [comments, setComments] = useState<Comment[]>([]);
+    const [escalationLogs, setEscalationLogs] = useState<EscalationLog[]>([]);
     const [userRole, setUserRole] = useState<'admin' | 'staff' | 'tenant' | 'mst' | null>(null);
     const [userId, setUserId] = useState<string | null>(null);
     const [loading, setLoading] = useState(true);
@@ -271,7 +285,7 @@ export default function TicketDetailPage() {
             }
 
             // Fetch Related Data
-            await Promise.all([fetchActivities(), fetchComments()]);
+            await Promise.all([fetchActivities(), fetchComments(), fetchEscalationLogs()]);
         } catch (err: any) {
             // Supabase errors have non-enumerable props — extract them explicitly
             const msg = err?.message || err?.error_description || err?.details || JSON.stringify(err);
@@ -371,15 +385,25 @@ export default function TicketDetailPage() {
         setComments(data || []);
     };
 
+    const fetchEscalationLogs = async () => {
+        const { data } = await supabase
+            .from('ticket_escalation_logs')
+            .select(`*, from_employee:users!from_employee_id(id, full_name), to_employee:users!to_employee_id(id, full_name)`)
+            .eq('ticket_id', ticketId)
+            .order('escalated_at', { ascending: true });
+        setEscalationLogs(data || []);
+    };
+
     const fetchResolvers = async (propId: string) => {
         const { data, error } = await supabase
-            .from('resolver_stats')
+            .from('property_memberships')
             .select(`
                 user_id,
+                role,
                 user:users!user_id(id, full_name)
             `)
             .eq('property_id', propId)
-            .eq('is_available', true);
+            .eq('is_active', true);
 
         if (error) {
             console.error('Error fetching resolvers:', error);
@@ -975,18 +999,33 @@ export default function TicketDetailPage() {
                                 {ticket.status === 'closed' || ticket.status === 'resolved' ? 'COMPLETE' : ticket.status === 'pending_validation' ? 'AWAITING APPROVAL' : ticket.status.replace('_', ' ')}
                             </div>
                             {ticket.sla_deadline && ticket.status !== 'closed' && (
-                                <div className={`flex items-center justify-end gap-1 text-xs font-bold ${ticket.sla_breached ? 'text-error' : (isDark ? 'text-slate-500' : 'text-slate-400')}`}>
+                                <div className="flex items-center justify-end mt-1">
                                     {ticket.sla_paused ? (
-                                        <div className="flex items-center gap-1.5 px-2 py-0.5 bg-amber-50 border border-amber-200 rounded-lg w-fit animate-pulse">
+                                        <div className="flex items-center gap-1.5 px-2 py-0.5 bg-amber-50 border border-amber-200 rounded-lg animate-pulse">
                                             <div className="w-1.5 h-1.5 rounded-full bg-amber-500" />
                                             <span className="text-[10px] font-black text-amber-700 uppercase tracking-widest">SLA Paused</span>
                                         </div>
+                                    ) : ticket.sla_breached ? (
+                                        <div className="flex flex-col items-end gap-0.5">
+                                            <div className="flex items-center gap-1.5 px-2.5 py-1 bg-rose-500 border border-rose-600 rounded-lg animate-pulse">
+                                                <AlertTriangle className="w-3 h-3 text-white" />
+                                                <span className="text-[10px] font-black text-white uppercase tracking-widest">SLA Breached</span>
+                                            </div>
+                                            <span className={`text-[10px] font-bold ${isDark ? 'text-rose-400' : 'text-rose-500'}`}>
+                                                {(() => {
+                                                    const breachTime = new Date(ticket.sla_deadline).getTime();
+                                                    const diff = Date.now() - breachTime;
+                                                    const hrs = Math.floor(diff / 3600000);
+                                                    const mins = Math.floor((diff % 3600000) / 60000);
+                                                    return hrs > 0 ? `${hrs}h ${mins}m overdue` : `${mins}m overdue`;
+                                                })()}
+                                            </span>
+                                        </div>
                                     ) : (
-                                        <>
+                                        <div className={`flex items-center gap-1 text-xs font-bold ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>
                                             <Clock className="w-3 h-3" />
-                                            {ticket.sla_breached ? 'Breached' :
-                                                `Due ${new Date(ticket.sla_deadline).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`}
-                                        </>
+                                            {`Due ${new Date(ticket.sla_deadline).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`}
+                                        </div>
                                     )}
                                 </div>
                             )}
@@ -1184,6 +1223,114 @@ export default function TicketDetailPage() {
                                 )}
                             </div>
                         </div>
+
+                        {/* Escalation Timeline */}
+                        {escalationLogs.length > 0 && (
+                            <div className={`${isDark ? 'bg-[#161b22] border-red-500/30' : 'bg-white border-red-200'} border rounded-3xl p-6 relative overflow-hidden shadow-sm`}>
+                                <div className="absolute top-0 right-0 w-64 h-64 bg-red-500/5 rounded-full blur-3xl -mr-20 -mt-20 pointer-events-none" />
+
+                                {/* Header */}
+                                <div className="flex items-center justify-between gap-3 mb-6 relative z-10 flex-wrap">
+                                    <div className="flex items-center gap-3">
+                                        <div className={`w-10 h-10 rounded-full ${isDark ? 'bg-red-500/10 border-red-500/20' : 'bg-red-50 border-red-100'} flex items-center justify-center flex-shrink-0 border`}>
+                                            <AlertTriangle className="w-5 h-5 text-red-500" />
+                                        </div>
+                                        <div>
+                                            <h2 className={`text-lg font-semibold ${isDark ? 'text-red-400' : 'text-red-700'}`}>Escalation Timeline</h2>
+                                            <p className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>{escalationLogs.length} escalation{escalationLogs.length > 1 ? 's' : ''} recorded</p>
+                                        </div>
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                        {ticket?.current_escalation_level != null && ticket.current_escalation_level > 0 && (
+                                            <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold ${isDark ? 'bg-red-500/15 text-red-300 border border-red-500/20' : 'bg-red-50 text-red-700 border border-red-200'}`}>
+                                                <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" />
+                                                Level {ticket.current_escalation_level} Active
+                                            </div>
+                                        )}
+                                        {ticket?.escalation_paused && (
+                                            <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold ${isDark ? 'bg-yellow-500/15 text-yellow-300 border border-yellow-500/20' : 'bg-yellow-50 text-yellow-700 border border-yellow-200'}`}>
+                                                <PauseCircle className="w-3.5 h-3.5" />
+                                                Paused
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+
+                                {/* Timeline entries */}
+                                <div className="relative pl-5 z-10">
+                                    <div className={`absolute left-[9px] top-2 bottom-2 w-px ${isDark ? 'bg-red-500/20' : 'bg-red-200'}`} />
+                                    <div className="space-y-4">
+                                        {escalationLogs.map((log) => {
+                                            const fromInitials = log.from_employee?.full_name
+                                                ? log.from_employee.full_name.split(' ').map((n: string) => n[0]).join('').slice(0, 2).toUpperCase()
+                                                : '?';
+                                            const toInitials = log.to_employee?.full_name
+                                                ? log.to_employee.full_name.split(' ').map((n: string) => n[0]).join('').slice(0, 2).toUpperCase()
+                                                : '?';
+                                            const reasonLabel =
+                                                log.reason === 'timeout' ? 'SLA Timeout' :
+                                                log.reason === 'manual' ? 'Manual' :
+                                                log.reason || 'Timeout';
+                                            return (
+                                                <div key={log.id} className="flex items-start gap-3">
+                                                    <div className={`w-[18px] h-[18px] rounded-full bg-red-500 border-2 ${isDark ? 'border-[#161b22]' : 'border-white'} flex-shrink-0 mt-1 z-10`} />
+                                                    <div className={`flex-1 ${isDark ? 'bg-red-500/5 border-red-500/10' : 'bg-red-50 border-red-100'} border rounded-xl p-4`}>
+                                                        {/* Level badges + reason + timestamp */}
+                                                        <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+                                                            <div className="flex items-center gap-2 flex-wrap">
+                                                                <span className={`text-xs font-bold px-2 py-0.5 rounded-md ${isDark ? 'bg-gray-800 text-gray-400 border border-gray-700' : 'bg-gray-100 text-gray-500 border border-gray-200'}`}>
+                                                                    L{log.from_level}
+                                                                </span>
+                                                                <ChevronRight className="w-3.5 h-3.5 text-red-500 flex-shrink-0" />
+                                                                <span className={`text-xs font-bold px-2 py-0.5 rounded-md ${isDark ? 'bg-red-500/20 text-red-300 border border-red-500/30' : 'bg-red-100 text-red-700 border border-red-200'}`}>
+                                                                    L{log.to_level ?? 'Final'}
+                                                                </span>
+                                                                <span className={`text-xs px-2 py-0.5 rounded-full ${isDark ? 'bg-orange-500/10 text-orange-400' : 'bg-orange-50 text-orange-600'}`}>
+                                                                    {reasonLabel}
+                                                                </span>
+                                                            </div>
+                                                            <span className={`text-xs ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>
+                                                                {new Date(log.escalated_at).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                                                            </span>
+                                                        </div>
+                                                        {/* From → To employees */}
+                                                        <div className="flex items-center gap-3 flex-wrap">
+                                                            <div className="flex items-center gap-2">
+                                                                <div className={`w-7 h-7 rounded-full flex-shrink-0 border overflow-hidden ${isDark ? 'border-gray-600' : 'border-gray-300'}`}>
+                                                                    {log.from_employee?.user_photo_url ? (
+                                                                        <img src={log.from_employee.user_photo_url} alt={log.from_employee.full_name} className="w-full h-full object-cover" />
+                                                                    ) : (
+                                                                        <div className={`w-full h-full flex items-center justify-center text-[10px] font-bold ${isDark ? 'bg-gray-700 text-gray-300' : 'bg-gray-200 text-gray-600'}`}>{fromInitials}</div>
+                                                                    )}
+                                                                </div>
+                                                                <div>
+                                                                    <p className={`text-[10px] uppercase tracking-wider ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>From</p>
+                                                                    <p className={`text-xs font-medium ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>{log.from_employee?.full_name || 'Unassigned'}</p>
+                                                                </div>
+                                                            </div>
+                                                            <ChevronRight className="w-4 h-4 text-red-500 flex-shrink-0" />
+                                                            <div className="flex items-center gap-2">
+                                                                <div className={`w-7 h-7 rounded-full flex-shrink-0 border overflow-hidden ${isDark ? 'border-red-500/30' : 'border-red-300'}`}>
+                                                                    {log.to_employee?.user_photo_url ? (
+                                                                        <img src={log.to_employee.user_photo_url} alt={log.to_employee.full_name} className="w-full h-full object-cover" />
+                                                                    ) : (
+                                                                        <div className={`w-full h-full flex items-center justify-center text-[10px] font-bold ${isDark ? 'bg-red-500/20 text-red-300' : 'bg-red-100 text-red-700'}`}>{toInitials}</div>
+                                                                    )}
+                                                                </div>
+                                                                <div>
+                                                                    <p className={`text-[10px] uppercase tracking-wider ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>To</p>
+                                                                    <p className={`text-xs font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>{log.to_employee?.full_name || 'No Assignee'}</p>
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                </div>
+                            </div>
+                        )}
 
                         {/* 2. Before / After Photos */}
                         <div className={`${isDark ? 'bg-[#161b22] border-[#21262d]' : 'bg-white border-slate-100'} p-6 rounded-3xl border shadow-sm`}>

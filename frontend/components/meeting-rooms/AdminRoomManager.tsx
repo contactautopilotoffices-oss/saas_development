@@ -1,11 +1,12 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { Plus, Loader2, Search, Filter, Calendar as CalendarIcon, LayoutGrid } from 'lucide-react';
+import { Plus, Loader2, Search, Filter, Calendar as CalendarIcon, LayoutGrid, Zap } from 'lucide-react';
 import RoomCard from './RoomCard';
 import RoomFormModal from './RoomFormModal';
 import AdminBookingList from './AdminBookingList';
 import TenantRoomBooking from './TenantRoomBooking';
+import AdminCreditsPanel from './AdminCreditsPanel';
 
 interface Room {
     id: string;
@@ -28,7 +29,7 @@ const AdminRoomManager: React.FC<AdminRoomManagerProps> = ({ propertyId, user })
     const [isLoading, setIsLoading] = useState(true);
     const [searchTerm, setSearchTerm] = useState('');
     const [statusFilter, setStatusFilter] = useState('all');
-    const [activeTab, setActiveTab] = useState<'rooms' | 'bookings' | 'book'>('rooms');
+    const [activeTab, setActiveTab] = useState<'rooms' | 'bookings' | 'book' | 'credits'>('rooms');
 
     // Modal state
     const [isModalOpen, setIsModalOpen] = useState(false);
@@ -83,37 +84,41 @@ const AdminRoomManager: React.FC<AdminRoomManagerProps> = ({ propertyId, user })
     });
 
     return (
-        <div className="px-4 md:px-0 space-y-4 md:space-y-8 animate-in fade-in duration-500 pb-10">
+        <div className="space-y-4 md:space-y-8 animate-in fade-in duration-500 pb-10">
             {/* Header / Actions */}
-            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6 bg-white p-5 md:p-8 rounded-[1.5rem] md:rounded-[2.5rem] border border-slate-100 shadow-sm">
-                <div className="flex flex-col gap-4 w-full md:w-auto">
+            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-white p-0 md:p-8 md:rounded-[2.5rem] md:border md:border-slate-100 md:shadow-sm">
+                <div className="flex flex-col gap-4 w-full md:w-auto px-4 md:px-0 pt-4 md:pt-0">
                     <div>
                         <h2 className="text-xl md:text-2xl font-black text-slate-900 tracking-tight">Meeting Room Assets</h2>
                         <p className="text-slate-500 font-bold text-[10px] md:text-xs uppercase tracking-widest mt-1">Manage and monitor conference facilities</p>
                     </div>
 
                     {/* Tabs */}
-                    <div className="grid grid-cols-3 md:flex bg-slate-50 p-1 md:p-1.5 rounded-xl md:rounded-2xl w-full md:w-fit">
+                    <div className="grid grid-cols-4 md:flex bg-slate-50 p-1 md:p-1.5 rounded-xl md:rounded-2xl w-full md:w-fit">
                         <button
                             onClick={() => setActiveTab('rooms')}
-                            className={`flex flex-1 items-center justify-center gap-0.5 md:gap-2 px-0.5 md:px-6 py-2 rounded-lg md:rounded-xl text-[6.5px] md:text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === 'rooms' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-400 hover:text-slate-600'
-                                }`}
+                            className={`flex flex-1 items-center justify-center gap-0.5 md:gap-2 px-0.5 md:px-6 py-2 rounded-lg md:rounded-xl text-[6.5px] md:text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === 'rooms' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}
                         >
                             <LayoutGrid className="w-2.5 h-2.5 md:w-3.5 md:h-3.5" />
                             <span className="truncate">Assets</span>
                         </button>
                         <button
                             onClick={() => setActiveTab('bookings')}
-                            className={`flex flex-1 items-center justify-center gap-0.5 md:gap-2 px-0.5 md:px-6 py-2 rounded-lg md:rounded-xl text-[6.5px] md:text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === 'bookings' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-400 hover:text-slate-600'
-                                }`}
+                            className={`flex flex-1 items-center justify-center gap-0.5 md:gap-2 px-0.5 md:px-6 py-2 rounded-lg md:rounded-xl text-[6.5px] md:text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === 'bookings' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}
                         >
                             <CalendarIcon className="w-2.5 h-2.5 md:w-3.5 md:h-3.5" />
                             <span className="truncate">Bookings</span>
                         </button>
                         <button
+                            onClick={() => setActiveTab('credits')}
+                            className={`flex flex-1 items-center justify-center gap-0.5 md:gap-2 px-0.5 md:px-6 py-2 rounded-lg md:rounded-xl text-[6.5px] md:text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === 'credits' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}
+                        >
+                            <Zap className="w-2.5 h-2.5 md:w-3.5 md:h-3.5" />
+                            <span className="truncate">Credits</span>
+                        </button>
+                        <button
                             onClick={() => setActiveTab('book')}
-                            className={`flex flex-1 items-center justify-center gap-0.5 md:gap-2 px-0.5 md:px-6 py-2 rounded-lg md:rounded-xl text-[6.5px] md:text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === 'book' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-400 hover:text-slate-600'
-                                }`}
+                            className={`flex flex-1 items-center justify-center gap-0.5 md:gap-2 px-0.5 md:px-6 py-2 rounded-lg md:rounded-xl text-[6.5px] md:text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === 'book' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}
                         >
                             <Plus className="w-2.5 h-2.5 md:w-3.5 md:h-3.5" />
                             <span className="truncate">Book Now</span>
@@ -122,13 +127,15 @@ const AdminRoomManager: React.FC<AdminRoomManagerProps> = ({ propertyId, user })
                 </div>
 
                 {activeTab === 'rooms' && (
-                    <button
-                        className="w-full md:w-auto px-6 md:px-8 py-3 md:py-4 bg-primary text-white font-black text-xs rounded-xl md:rounded-2xl uppercase tracking-[0.2em] hover:opacity-95 hover:scale-105 transition-all flex items-center justify-center gap-3 shadow-xl shadow-primary/20"
-                        onClick={handleAdd}
-                    >
-                        <Plus className="w-4 h-4" />
-                        Add New Room
-                    </button>
+                    <div className="px-4 md:px-0 pb-2 md:pb-0 w-full md:w-auto">
+                        <button
+                            className="w-full md:w-auto px-6 md:px-8 py-3 md:py-4 bg-primary text-white font-black text-xs rounded-xl md:rounded-2xl uppercase tracking-[0.2em] hover:opacity-95 hover:scale-105 transition-all flex items-center justify-center gap-3 shadow-xl shadow-primary/20"
+                            onClick={handleAdd}
+                        >
+                            <Plus className="w-4 h-4" />
+                            Add New Room
+                        </button>
+                    </div>
                 )}
             </div>
 
@@ -191,6 +198,8 @@ const AdminRoomManager: React.FC<AdminRoomManagerProps> = ({ propertyId, user })
                 </>
             ) : activeTab === 'bookings' ? (
                 <AdminBookingList propertyId={propertyId} />
+            ) : activeTab === 'credits' ? (
+                <AdminCreditsPanel propertyId={propertyId} />
             ) : (
                 <TenantRoomBooking propertyId={propertyId} user={user} hideHeader={true} />
             )}

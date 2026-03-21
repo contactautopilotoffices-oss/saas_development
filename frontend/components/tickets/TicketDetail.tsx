@@ -23,7 +23,7 @@ interface Comment {
     comment: string;
     created_at: string;
     is_internal: boolean;
-    user?: { full_name: string; avatar_url?: string };
+    user?: { full_name: string; user_photo_url?: string };
 }
 
 interface Activity {
@@ -33,6 +33,16 @@ interface Activity {
     old_value?: string | null;
     created_at: string;
     user?: { full_name: string };
+}
+
+interface EscalationLog {
+    id: string;
+    from_level: number;
+    to_level: number | null;
+    reason: string;
+    escalated_at: string;
+    from_employee?: { full_name: string } | null;
+    to_employee?: { full_name: string } | null;
 }
 
 function MediaSlot({
@@ -108,6 +118,7 @@ export default function TicketDetail({ ticketId, onBack, isAdmin = false }: Tick
     const [isUploading, setIsUploading] = useState(false);
     const [uploadError, setUploadError] = useState<string | null>(null);
     const [activities, setActivities] = useState<Activity[]>([]);
+    const [escalationLogs, setEscalationLogs] = useState<EscalationLog[]>([]);
 
     useEffect(() => {
         fetchTicketDetail();
@@ -122,6 +133,7 @@ export default function TicketDetail({ ticketId, onBack, isAdmin = false }: Tick
                 setTimeline(data.timeline || []);
                 setComments(data.comments || []);
                 setActivities(data.activities || []);
+                setEscalationLogs(data.escalationLogs || []);
             }
         } catch (error) {
             console.error('Error fetching ticket:', error);
@@ -450,6 +462,92 @@ export default function TicketDetail({ ticketId, onBack, isAdmin = false }: Tick
                         ))}
                     </div>
                 </div>
+
+                {/* Escalation Timeline */}
+                {escalationLogs.length > 0 && (
+                    <div className="bg-[#161b22] border border-red-500/30 rounded-xl p-6 relative overflow-hidden">
+                        <div className="absolute top-0 right-0 w-64 h-64 bg-red-500/5 rounded-full blur-3xl -mr-20 -mt-20 pointer-events-none" />
+
+                        {/* Header */}
+                        <div className="flex items-center justify-between gap-3 mb-6 relative z-10 flex-wrap">
+                            <div className="flex items-center gap-3">
+                                <div className="w-10 h-10 rounded-full bg-red-500/10 flex items-center justify-center flex-shrink-0 border border-red-500/20">
+                                    <AlertTriangle className="w-5 h-5 text-red-400" />
+                                </div>
+                                <div>
+                                    <h2 className="text-lg font-semibold text-red-400">Escalation Timeline</h2>
+                                    <p className="text-xs text-gray-400">{escalationLogs.length} escalation{escalationLogs.length > 1 ? 's' : ''} recorded</p>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Timeline entries */}
+                        <div className="relative pl-5 z-10">
+                            <div className="absolute left-[9px] top-2 bottom-2 w-px bg-red-500/20" />
+                            <div className="space-y-4">
+                                {escalationLogs.map((log) => {
+                                    const fromInitials = log.from_employee?.full_name
+                                        ? log.from_employee.full_name.split(' ').map((n: string) => n[0]).join('').slice(0, 2).toUpperCase()
+                                        : '?';
+                                    const toInitials = log.to_employee?.full_name
+                                        ? log.to_employee.full_name.split(' ').map((n: string) => n[0]).join('').slice(0, 2).toUpperCase()
+                                        : '?';
+                                    const reasonLabel =
+                                        log.reason === 'timeout' ? 'SLA Timeout' :
+                                        log.reason === 'manual' ? 'Manual' :
+                                        log.reason || 'Timeout';
+                                    return (
+                                        <div key={log.id} className="flex items-start gap-3">
+                                            <div className="w-[18px] h-[18px] rounded-full bg-red-500 border-2 border-[#161b22] flex-shrink-0 mt-1 z-10" />
+                                            <div className="flex-1 bg-red-500/5 border border-red-500/10 rounded-xl p-4">
+                                                {/* Level badges + reason + timestamp */}
+                                                <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+                                                    <div className="flex items-center gap-2 flex-wrap">
+                                                        <span className="text-xs font-bold px-2 py-0.5 rounded-md bg-gray-800 text-gray-400 border border-gray-700">
+                                                            L{log.from_level}
+                                                        </span>
+                                                        <svg className="w-3.5 h-3.5 text-red-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" /></svg>
+                                                        <span className="text-xs font-bold px-2 py-0.5 rounded-md bg-red-500/20 text-red-300 border border-red-500/30">
+                                                            L{log.to_level ?? 'Final'}
+                                                        </span>
+                                                        <span className="text-xs px-2 py-0.5 rounded-full bg-orange-500/10 text-orange-400">
+                                                            {reasonLabel}
+                                                        </span>
+                                                    </div>
+                                                    <span className="text-xs text-gray-500">
+                                                        {new Date(log.escalated_at).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                                                    </span>
+                                                </div>
+                                                {/* From → To employees */}
+                                                <div className="flex items-center gap-3 flex-wrap">
+                                                    <div className="flex items-center gap-2">
+                                                        <div className="w-7 h-7 rounded-full flex items-center justify-center text-[10px] font-bold flex-shrink-0 bg-gray-700 text-gray-300">
+                                                            {fromInitials}
+                                                        </div>
+                                                        <div>
+                                                            <p className="text-[10px] uppercase tracking-wider text-gray-500">From</p>
+                                                            <p className="text-xs font-medium text-gray-300">{log.from_employee?.full_name || 'Unassigned'}</p>
+                                                        </div>
+                                                    </div>
+                                                    <svg className="w-4 h-4 text-red-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" /></svg>
+                                                    <div className="flex items-center gap-2">
+                                                        <div className="w-7 h-7 rounded-full flex items-center justify-center text-[10px] font-bold flex-shrink-0 bg-red-500/20 text-red-300">
+                                                            {toInitials}
+                                                        </div>
+                                                        <div>
+                                                            <p className="text-[10px] uppercase tracking-wider text-gray-500">To</p>
+                                                            <p className="text-xs font-bold text-white">{log.to_employee?.full_name || 'No Assignee'}</p>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        </div>
+                    </div>
+                )}
 
                 {/* Media Section — Photos + Videos */}
                 <div className="bg-[#161b22] border border-[#30363d] rounded-xl p-6">

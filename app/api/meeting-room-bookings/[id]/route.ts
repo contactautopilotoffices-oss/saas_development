@@ -1,13 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/frontend/utils/supabase/server';
 import { createAdminClient } from '@/frontend/utils/supabase/admin';
+import { supabaseAdmin } from '@/backend/lib/supabase/admin';
 
 /**
  * DELETE /api/meeting-room-bookings/[id]
  * Delete a booking (Admin/Technical Staff only)
  */
 export async function DELETE(
-    request: NextRequest,
+    _request: NextRequest,
     { params }: { params: Promise<{ id: string }> }
 ) {
     try {
@@ -24,7 +25,7 @@ export async function DELETE(
         // 1. Fetch booking to get property_id
         const { data: booking, error: bookingError } = await adminSupabase
             .from('meeting_room_bookings')
-            .select('property_id, user_id')
+            .select('property_id, user_id, booking_date, start_time, end_time')
             .eq('id', bookingId)
             .single();
 
@@ -101,14 +102,7 @@ export async function DELETE(
                 .eq('booking_id', bookingId);
         }
 
-        // 5. Fetch booking details for logging before deletion
-        const { data: bookingDetail } = await adminSupabase
-            .from('meeting_room_bookings')
-            .select('*, meeting_room:meeting_rooms(name), tenant:users!user_id(full_name)')
-            .eq('id', bookingId)
-            .single();
-
-        // 6. Perform deletion of the booking
+        // 5. Perform deletion of the booking
         const { error: deleteError } = await adminSupabase
             .from('meeting_room_bookings')
             .delete()
@@ -137,6 +131,39 @@ export async function DELETE(
             });
         } catch (err) {
             console.error('Activity log insertion failed:', err);
+        }
+
+        // 8. Refund credits if booking is in the future and tenant has a credit record
+        const bookingEnd = new Date(`${booking.booking_date}T${booking.end_time}`);
+        if (bookingEnd > new Date()) {
+            const [startH, startM] = booking.start_time.split(':').map(Number);
+            const [endH, endM] = booking.end_time.split(':').map(Number);
+            const durationHours = (endH * 60 + endM - startH * 60 - startM) / 60;
+
+            const { data: credit } = await supabaseAdmin
+                .from('meeting_room_credits')
+                .select('id, remaining_hours')
+                .eq('property_id', booking.property_id)
+                .eq('user_id', booking.user_id)
+                .single();
+
+            if (credit) {
+                const newRemaining = credit.remaining_hours + durationHours;
+                await supabaseAdmin
+                    .from('meeting_room_credits')
+                    .update({ remaining_hours: newRemaining, updated_at: new Date().toISOString() })
+                    .eq('id', credit.id);
+
+                await supabaseAdmin.from('meeting_room_credit_log').insert({
+                    credit_id: credit.id,
+                    user_id: booking.user_id,
+                    action: 'refunded',
+                    hours_changed: durationHours,
+                    hours_after: newRemaining,
+                    performed_by: user.id,
+                    notes: `Credit refund on booking cancellation`,
+                });
+            }
         }
 
         return NextResponse.json({ success: true, message: 'Booking deleted successfully' });

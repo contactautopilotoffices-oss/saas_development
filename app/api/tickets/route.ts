@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/frontend/utils/supabase/server';
+import { createAdminClient } from '@/frontend/utils/supabase/admin';
 import { resolveClassification, logClassification } from '@/backend/lib/ticketing';
 
 // Extract floor number from description
@@ -88,9 +89,10 @@ export async function GET(request: NextRequest) {
         category:issue_categories(id, code, name),
         skill_group:skill_groups(id, code, name),
         creator:users!raised_by(id, full_name, email, property_memberships(role, property_id)),
-        assignee:users!assigned_to(id, full_name, email),
+        assignee:users!assigned_to(id, full_name, email, user_photo_url),
         organization:organizations(id, name, code),
-        property:properties(id, name, code)
+        property:properties(id, name, code),
+        ticket_escalation_logs(from_level, to_level, escalated_at, from_employee:users!from_employee_id(full_name, user_photo_url), to_employee:users!to_employee_id(full_name, user_photo_url))
       `)
             .order('created_at', { ascending: false });
 
@@ -299,6 +301,41 @@ export async function POST(request: NextRequest) {
             return NextResponse.json({
                 error: `Failed to create ticket: ${insertError.message}`
             }, { status: 500 });
+        }
+
+        // Auto-attach the default escalation hierarchy (property-specific first, then org-wide fallback)
+        const adminClient = createAdminClient();
+        let { data: defaultHierarchy } = await adminClient
+            .from('escalation_hierarchies')
+            .select('id')
+            .eq('organization_id', orgId)
+            .eq('property_id', propId)
+            .eq('is_default', true)
+            .eq('is_active', true)
+            .maybeSingle();
+
+        // Fallback: try org-wide hierarchy (property_id IS NULL)
+        if (!defaultHierarchy) {
+            const { data: orgWideHierarchy } = await adminClient
+                .from('escalation_hierarchies')
+                .select('id')
+                .eq('organization_id', orgId)
+                .is('property_id', null)
+                .eq('is_default', true)
+                .eq('is_active', true)
+                .maybeSingle();
+            defaultHierarchy = orgWideHierarchy;
+        }
+
+        if (defaultHierarchy) {
+            await adminClient
+                .from('tickets')
+                .update({
+                    hierarchy_id: defaultHierarchy.id,
+                    current_escalation_level: 0,
+                    escalation_last_action_at: new Date().toISOString(),
+                })
+                .eq('id', ticket.id);
         }
 
         // Re-fetch the ticket for trigger updates

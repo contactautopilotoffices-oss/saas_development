@@ -15,6 +15,7 @@ interface Ticket {
     sla_deadline: string | null;
     sla_breached: boolean;
     is_internal: boolean;
+    current_escalation_level?: number;
     category?: { name: string; icon: string };
     creator?: { full_name: string };
     assignee?: { full_name: string };
@@ -157,6 +158,12 @@ export default function TicketList({
                                             Internal
                                         </span>
                                     )}
+                                    {ticket.current_escalation_level ? (
+                                        <span className="text-xs px-2 py-0.5 bg-red-500/20 text-red-400 rounded flex items-center gap-1 border border-red-500/30">
+                                            <AlertTriangle className="w-3 h-3" />
+                                            L{ticket.current_escalation_level} Escalation
+                                        </span>
+                                    ) : null}
                                 </div>
 
                                 <h3 className="text-white font-medium truncate">{ticket.title}</h3>

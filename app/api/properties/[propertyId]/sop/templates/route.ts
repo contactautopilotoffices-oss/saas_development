@@ -70,7 +70,7 @@ export async function POST(
         }
 
         const body = await request.json();
-        const { title, description, category = 'general', frequency = 'daily', assigned_to = [], items = [] } = body;
+        const { title, description, category = 'general', frequency = 'daily', assigned_to = [], start_time, end_time, items = [] } = body;
 
 
 
@@ -100,10 +100,9 @@ export async function POST(
                 category,
                 frequency,
                 assigned_to,
-
+                ...(start_time ? { start_time } : {}),
+                ...(end_time ? { end_time } : {}),
                 created_by: user.id,
-
-
             })
             .select()
             .single();
@@ -124,6 +123,8 @@ export async function POST(
                 requires_photo: item.requires_photo || false,
                 requires_comment: item.requires_comment || false,
                 is_mandatory: item.is_mandatory !== false,
+                start_time: item.start_time || null,
+                end_time: item.end_time || null,
             }));
 
             const { error: itemsError } = await supabaseAdmin

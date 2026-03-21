@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { AlertTriangle, Clock, RefreshCw, ChevronDown, User, X, Trash2 } from 'lucide-react';
+import { AlertTriangle, Clock, MapPin, ChevronDown, User, X, Trash2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useRouter } from 'next/navigation';
 import { useDataCache } from '@/frontend/context/DataCacheContext';
@@ -49,20 +49,30 @@ interface Category {
     name: string;
 }
 
+interface Property {
+    id: string;
+    name: string;
+    code: string;
+    image_url?: string;
+}
+
 interface AdminSPOCDashboardProps {
-    propertyId?: string; // Optional if viewing all properties
+    propertyId?: string;
     organizationId?: string;
     propertyName?: string;
     adminUser?: { full_name: string; avatar_url?: string };
     initialStatusFilter?: string;
+    properties?: Property[];
+    onPropertyChange?: (propertyId: string) => void;
 }
 
 export default function AdminSPOCDashboard({
     propertyId,
     organizationId,
     propertyName,
-    adminUser,
     initialStatusFilter = 'all',
+    properties = [],
+    onPropertyChange,
 }: AdminSPOCDashboardProps) {
     const router = useRouter();
     const [selectedTicket, setSelectedTicket] = useState<Ticket | null>(null);
@@ -72,6 +82,7 @@ export default function AdminSPOCDashboard({
     const [actionLoading, setActionLoading] = useState<string | null>(null);
     const [statusFilter, setStatusFilter] = useState(initialStatusFilter || 'all');
     const [timePeriod, setTimePeriod] = useState<'today' | 'all'>('all');
+    const [showPropDropdown, setShowPropDropdown] = useState(false);
 
     const { getCachedData, setCachedData } = useDataCache();
     const cacheKey = `spoc-dashboard-${propertyId}-${statusFilter}`;
@@ -87,8 +98,6 @@ export default function AdminSPOCDashboard({
             setStatusFilter(initialStatusFilter);
         }
     }, [initialStatusFilter]);
-
-    // Consolidate fetchData effect at the end of the component
 
     const fetchData = useCallback(async () => {
         if (!loading && !tickets.length) setLoading(true);
@@ -112,7 +121,6 @@ export default function AdminSPOCDashboard({
 
             console.log('[AdminSPOCDashboard] Fetching with params:', params.toString());
 
-            // Fetch data with individual error handling to identify which one fails
             const fetchWithLog = async (url: string, name: string) => {
                 try {
                     const res = await fetch(url);
@@ -122,7 +130,7 @@ export default function AdminSPOCDashboard({
                     return res;
                 } catch (err) {
                     console.error(`[AdminSPOCDashboard] ${name} fetch CRASHED:`, err);
-                    throw err; // Re-throw to be caught by the outer try-catch
+                    throw err;
                 }
             };
 
@@ -139,7 +147,6 @@ export default function AdminSPOCDashboard({
                 fetchedTickets = data.tickets || [];
                 setTickets(fetchedTickets);
 
-                // Fetch activity for the first ticket if available
                 if (fetchedTickets.length > 0 && fetchedTickets[0]?.id) {
                     try {
                         const actRes = await fetch(`/api/tickets/${fetchedTickets[0].id}/activity`);
@@ -172,7 +179,6 @@ export default function AdminSPOCDashboard({
                 setCategories([]);
             }
 
-            // Final cache update with everything
             setCachedData(cacheKey, {
                 tickets: fetchedTickets,
                 resolvers: currentResolvers,
@@ -189,7 +195,7 @@ export default function AdminSPOCDashboard({
 
     useEffect(() => {
         fetchData();
-        const interval = setInterval(fetchData, 10000); // More frequent updates for "Live" board
+        const interval = setInterval(fetchData, 10000);
         return () => clearInterval(interval);
     }, [fetchData]);
 
@@ -209,7 +215,17 @@ export default function AdminSPOCDashboard({
         return { text: `${hours}h ${diffMins % 60}m`, color: 'text-gray-400 bg-gray-500/20', urgent: false };
     };
 
-    // Force Assign
+    const handleStatusChange = (newFilter: string) => {
+        setStatusFilter(newFilter);
+        const url = new URL(window.location.href);
+        if (newFilter !== 'all') {
+            url.searchParams.set('filter', newFilter);
+        } else {
+            url.searchParams.delete('filter');
+        }
+        window.history.pushState({}, '', url.toString());
+    };
+
     const handleForceAssign = async () => {
         if (!selectedTicket || !assignTo) return;
         setActionLoading('assign');
@@ -229,7 +245,6 @@ export default function AdminSPOCDashboard({
         }
     };
 
-    // Pause/Resume SLA
     const handlePauseSLA = async (ticketId: string, pause: boolean) => {
         setActionLoading(`pause-${ticketId}`);
         try {
@@ -246,7 +261,6 @@ export default function AdminSPOCDashboard({
         }
     };
 
-    // Trigger AI Re-eval
     const handleReclassify = async (ticketId: string) => {
         setActionLoading(`reclassify-${ticketId}`);
         try {
@@ -259,7 +273,6 @@ export default function AdminSPOCDashboard({
         }
     };
 
-    // Override Classification
     const handleOverrideClassification = async () => {
         if (!selectedTicket || !overrideCategory) return;
         setActionLoading('override');
@@ -282,14 +295,9 @@ export default function AdminSPOCDashboard({
     const handleDeleteTicket = async (e: React.MouseEvent, ticketId: string) => {
         e.stopPropagation();
         if (!confirm('Are you sure you want to delete this ticket? This action is permanent.')) return;
-
         try {
-            const response = await fetch(`/api/tickets/${ticketId}`, {
-                method: 'DELETE'
-            });
-            if (response.ok) {
-                fetchData();
-            }
+            const response = await fetch(`/api/tickets/${ticketId}`, { method: 'DELETE' });
+            if (response.ok) fetchData();
         } catch (error) {
             console.error('Error deleting ticket:', error);
         }
@@ -298,69 +306,89 @@ export default function AdminSPOCDashboard({
     const waitlistTickets = tickets.filter(t => t.status === 'waitlist');
     const slaRiskTickets = tickets.filter(t => {
         if (!t.sla_deadline || t.sla_paused) return false;
+        if (['resolved', 'closed', 'completed', 'pending_validation'].includes(t.status)) return false;
         const diffMs = new Date(t.sla_deadline).getTime() - Date.now();
         return diffMs > 0 && diffMs < 60 * 60 * 1000;
     });
-    const availableResolvers = resolvers.filter(r => r.is_available);
-
-    // Real workload distribution for chart
-    const workloadBuckets = [0, 0, 0, 0, 0]; // 0, 1-2, 3-4, 5-6, 7+ tasks
-    resolvers.forEach(r => {
-        if (r.active_tickets === 0) workloadBuckets[0]++;
-        else if (r.active_tickets <= 2) workloadBuckets[1]++;
-        else if (r.active_tickets <= 4) workloadBuckets[2]++;
-        else if (r.active_tickets <= 6) workloadBuckets[3]++;
-        else workloadBuckets[4]++;
-    });
 
     return (
-        <div className="min-h-full bg-transparent text-slate-900 p-0 lg:p-5">
-            {/* Header */}
-            <div className="flex items-center justify-between mb-5">
+        <div className="min-h-full bg-transparent text-slate-900">
+
+            {/* ── DESKTOP HEADER (hidden on mobile) ── */}
+            <div className="hidden lg:flex items-center justify-between px-5 pt-5 mb-5">
                 <div className="flex items-center gap-4">
                     <div className="w-12 h-12 bg-emerald-100 rounded-full flex items-center justify-center">
                         <User className="w-6 h-6 text-emerald-600" />
                     </div>
                     <div>
                         <h1 className="text-xl font-black text-slate-900">Request Board</h1>
-                        <p className="text-slate-400 text-sm font-bold">{propertyName || 'All Properties'}</p>
+                        {properties.length > 0 && onPropertyChange ? (
+                            <div className="relative">
+                                <button
+                                    onClick={() => setShowPropDropdown(!showPropDropdown)}
+                                    className="flex items-center gap-1 text-slate-400 text-sm font-bold hover:text-slate-600 transition-colors"
+                                >
+                                    <MapPin className="w-3.5 h-3.5" />
+                                    <span>{propertyName || 'All Properties'}</span>
+                                    <ChevronDown className={`w-3.5 h-3.5 transition-transform ${showPropDropdown ? 'rotate-180' : ''}`} />
+                                </button>
+                                <AnimatePresence>
+                                    {showPropDropdown && (
+                                        <>
+                                            <div className="fixed inset-0 z-[60]" onClick={() => setShowPropDropdown(false)} />
+                                            <motion.div
+                                                initial={{ opacity: 0, y: 6, scale: 0.95 }}
+                                                animate={{ opacity: 1, y: 0, scale: 1 }}
+                                                exit={{ opacity: 0, y: 6, scale: 0.95 }}
+                                                className="absolute left-0 mt-2 w-56 bg-white rounded-2xl shadow-xl border border-slate-200 z-[70] overflow-hidden"
+                                            >
+                                                <div className="p-1.5">
+                                                    <button
+                                                        onClick={() => { onPropertyChange('all'); setShowPropDropdown(false); }}
+                                                        className={`w-full flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-bold transition-colors ${!propertyId ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-50'}`}
+                                                    >
+                                                        <MapPin className="w-3.5 h-3.5" />
+                                                        All Properties
+                                                    </button>
+                                                    {properties.map(prop => (
+                                                        <button
+                                                            key={prop.id}
+                                                            onClick={() => { onPropertyChange(prop.id); setShowPropDropdown(false); }}
+                                                            className={`w-full flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-bold transition-colors ${propertyId === prop.id ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-50'}`}
+                                                        >
+                                                            <MapPin className="w-3.5 h-3.5" />
+                                                            <span className="truncate">{prop.name}</span>
+                                                        </button>
+                                                    ))}
+                                                </div>
+                                            </motion.div>
+                                        </>
+                                    )}
+                                </AnimatePresence>
+                            </div>
+                        ) : (
+                            <p className="text-slate-400 text-sm font-bold">{propertyName || 'All Properties'}</p>
+                        )}
                     </div>
                 </div>
                 <div className="flex items-center gap-3">
                     <div className="flex items-center bg-white border border-slate-200 p-0.5 rounded-xl">
                         <button
                             onClick={() => setTimePeriod('today')}
-                            className={`px-3 py-1 text-[10px] font-black uppercase tracking-tight rounded-lg transition-all ${timePeriod === 'today'
-                                ? 'bg-slate-900 text-white shadow-sm'
-                                : 'text-slate-400 hover:text-slate-600'
-                                }`}
+                            className={`px-3 py-1 text-[10px] font-black uppercase tracking-tight rounded-lg transition-all ${timePeriod === 'today' ? 'bg-slate-900 text-white shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}
                         >
                             Today
                         </button>
                         <button
                             onClick={() => setTimePeriod('all')}
-                            className={`px-3 py-1 text-[10px] font-black uppercase tracking-tight rounded-lg transition-all ${timePeriod === 'all'
-                                ? 'bg-slate-900 text-white shadow-sm'
-                                : 'text-slate-400 hover:text-slate-600'
-                                }`}
+                            className={`px-3 py-1 text-[10px] font-black uppercase tracking-tight rounded-lg transition-all ${timePeriod === 'all' ? 'bg-slate-900 text-white shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}
                         >
                             All
                         </button>
                     </div>
                     <select
                         value={statusFilter}
-                        onChange={(e) => {
-                            const newFilter = e.target.value;
-                            setStatusFilter(newFilter);
-                            // Update URL with new filter
-                            const url = new URL(window.location.href);
-                            if (newFilter !== 'all') {
-                                url.searchParams.set('filter', newFilter);
-                            } else {
-                                url.searchParams.delete('filter');
-                            }
-                            window.history.pushState({}, '', url.toString());
-                        }}
+                        onChange={(e) => handleStatusChange(e.target.value)}
                         className="h-9 px-3 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-emerald-100"
                     >
                         <option value="all">All Status</option>
@@ -372,156 +400,86 @@ export default function AdminSPOCDashboard({
                 </div>
             </div>
 
-            <div className="grid grid-cols-12 gap-5">
-                {/* Live Ticket Board - Increased Size */}
-                <div className="col-span-12 lg:col-span-6 bg-white border border-slate-100 rounded-[24px] p-5 shadow-sm">
-                    <h2 className="text-xs font-black text-slate-400 mb-4 flex items-center gap-2 uppercase tracking-widest">
-                        <span className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse" />
-                        Live Ticket Board
-                    </h2>
-
-                    <div className="overflow-auto max-h-[400px]">
-                        <table className="w-full text-xs">
-                            <thead className="text-slate-400 sticky top-0 bg-white">
-                                <tr>
-                                    <th className="text-left py-2 font-black uppercase tracking-wider">ID</th>
-                                    <th className="text-left py-2 font-black uppercase tracking-wider pl-2">Subject</th>
-                                    <th className="text-left py-2 font-black uppercase tracking-wider pl-2">Status</th>
-                                    <th className="text-right py-2 font-black uppercase tracking-wider">SLA</th>
-                                </tr>
-                            </thead>
-                            <tbody className="divide-y divide-slate-50">
-                                {loading ? (
-                                    // Skeleton rows
-                                    [1, 2, 3, 4, 5].map((i) => (
-                                        <tr key={i}>
-                                            <td className="py-3"><Skeleton className="h-4 w-10" /></td>
-                                            <td className="py-3 pl-2"><Skeleton className="h-4 w-32" /></td>
-                                            <td className="py-3 pl-2"><Skeleton className="h-4 w-16 rounded" /></td>
-                                            <td className="py-3 text-right"><Skeleton className="h-4 w-12 ml-auto" /></td>
-                                        </tr>
-                                    ))
-                                ) : tickets.length === 0 ? (
-                                    <tr>
-                                        <td colSpan={4} className="py-12 text-center text-slate-400 font-bold italic">
-                                            No active tickets found.
-                                        </td>
-                                    </tr>
-                                ) : (
-                                    tickets.slice(0, 15).map((ticket) => {
-                                        const sla = getSLAStatus(ticket.sla_deadline, ticket.sla_breached, ticket.sla_paused);
-                                        return (
-                                            <tr
-                                                key={ticket.id}
-                                                className={`hover:bg-slate-50 cursor-pointer transition-colors ${selectedTicket?.id === ticket.id ? 'bg-emerald-50' : ''
-                                                    }`}
-                                                onClick={() => router.push(`/tickets/${ticket.id}?from=requests`)}
-                                            >
-                                                <td className="py-3 text-slate-500 font-bold">{ticket.ticket_number?.slice(-5)}</td>
-                                                <td className="py-3 text-slate-900 font-medium truncate max-w-[120px] pl-2">{ticket.title}</td>
-                                                <td className="py-3 text-slate-900 font-medium pl-2">
-                                                    <span className={`px-2 py-0.5 rounded text-[10px] font-black uppercase ${ticket.status === 'resolved' ? 'bg-emerald-100 text-emerald-600' :
-                                                        ticket.status === 'in_progress' ? 'bg-blue-100 text-blue-600' :
-                                                            'bg-slate-100 text-slate-600'
-                                                        }`}>
-                                                        {ticket.status?.replace(/_/g, ' ')}
-                                                    </span>
-                                                </td>
-                                                <td className="py-3 text-right flex items-center justify-end gap-2">
-                                                    <button
-                                                        onClick={(e) => handleDeleteTicket(e, ticket.id)}
-                                                        className="p-1 text-slate-300 hover:text-rose-500 rounded transition-colors"
-                                                    >
-                                                        <Trash2 className="w-3.5 h-3.5" />
-                                                    </button>
-                                                    {sla ? (
-                                                        <span className={`px-2 py-0.5 rounded-md text-[10px] font-black uppercase ${sla.color}`}>
-                                                            {sla.text}
-                                                        </span>
-                                                    ) : '-'}
-                                                </td>
-                                            </tr>
-                                        );
-                                    })
-                                )}
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-
-                {/* Resolver Load Map - Reduced Size per Request */}
-                <div className="col-span-12 lg:col-span-2 bg-white border border-slate-100 rounded-[24px] p-5 shadow-sm relative overflow-hidden">
-                    <h2 className="text-xs font-black text-slate-400 mb-4 uppercase tracking-widest">Resolver Load Map</h2>
-
-                    {/* Coming Soon Overlay */}
-                    <div className="absolute inset-0 bg-white/60 backdrop-blur-[2px] z-10 flex flex-col items-center justify-center">
-                        <div className="px-4 py-2 bg-slate-900 text-white text-xs font-black uppercase tracking-widest rounded-xl shadow-xl">
-                            Coming Soon
-                        </div>
-                        <p className="text-slate-500 text-xs font-bold mt-2">Map view in development</p>
-                    </div>
-
-                    <div className="flex gap-4 opacity-50 pointer-events-none">
-                        <div className="flex-1 bg-slate-50 rounded-2xl p-4 relative min-h-[200px] border border-slate-100">
-                            <div className="absolute inset-0 bg-[linear-gradient(rgba(0,0,0,0.05)_1px,transparent_1px),linear-gradient(90deg,rgba(0,0,0,0.05)_1px,transparent_1px)] bg-[size:20px_20px]" />
-
-                            {resolvers.slice(0, 6).map((r, i) => (
-                                <div
-                                    key={`${r.user_id}-${i}`}
-                                    className="absolute flex flex-col items-center"
-                                    style={{
-                                        left: `${15 + (i % 3) * 30}%`,
-                                        top: `${20 + Math.floor(i / 3) * 45}%`,
-                                    }}
+            {/* ── MOBILE FILTER ROW (hidden on desktop) ── */}
+            <div className="flex lg:hidden items-center gap-2 px-3 pt-3 pb-2">
+                {/* Property selector pill */}
+                <div className="flex-1 relative min-w-0">
+                    <button
+                        onClick={() => properties.length > 0 && onPropertyChange && setShowPropDropdown(!showPropDropdown)}
+                        className="w-full flex items-center gap-1.5 bg-white border border-slate-200 rounded-full px-3 h-9"
+                    >
+                        <MapPin className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />
+                        <span className="text-xs font-bold text-slate-700 flex-1 truncate text-left">{propertyName || 'All Properties'}</span>
+                        {properties.length > 0 && onPropertyChange && (
+                            <ChevronDown className={`w-3.5 h-3.5 text-slate-400 flex-shrink-0 transition-transform ${showPropDropdown ? 'rotate-180' : ''}`} />
+                        )}
+                    </button>
+                    <AnimatePresence>
+                        {showPropDropdown && properties.length > 0 && onPropertyChange && (
+                            <>
+                                <div className="fixed inset-0 z-[60]" onClick={() => setShowPropDropdown(false)} />
+                                <motion.div
+                                    initial={{ opacity: 0, y: 6, scale: 0.95 }}
+                                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                                    exit={{ opacity: 0, y: 6, scale: 0.95 }}
+                                    className="absolute left-0 mt-2 w-56 bg-white rounded-2xl shadow-xl border border-slate-200 z-[70] overflow-hidden"
                                 >
-                                    <div className={`w-8 h-8 rounded-full flex items-center justify-center shadow-sm ${r.active_tickets === 0 ? 'bg-emerald-100 border-2 border-emerald-400 text-emerald-700' :
-                                        r.active_tickets < 3 ? 'bg-amber-100 border-2 border-amber-400 text-amber-700' :
-                                            'bg-rose-100 border-2 border-rose-400 text-rose-700'
-                                        }`}>
-                                        <User className="w-4 h-4" />
+                                    <div className="p-1.5">
+                                        <button
+                                            onClick={() => { onPropertyChange('all'); setShowPropDropdown(false); }}
+                                            className={`w-full flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-bold transition-colors ${!propertyId ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-50'}`}
+                                        >
+                                            <MapPin className="w-3.5 h-3.5" />
+                                            All Properties
+                                        </button>
+                                        {properties.map(prop => (
+                                            <button
+                                                key={prop.id}
+                                                onClick={() => { onPropertyChange(prop.id); setShowPropDropdown(false); }}
+                                                className={`w-full flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-bold transition-colors ${propertyId === prop.id ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-50'}`}
+                                            >
+                                                <MapPin className="w-3.5 h-3.5" />
+                                                <span className="truncate">{prop.name}</span>
+                                            </button>
+                                        ))}
                                     </div>
-                                    <span className="text-[9px] font-bold text-slate-500 mt-1">{r.active_tickets}</span>
-                                </div>
-                            ))}
-                        </div>
-
-                        <div className="w-32 space-y-3">
-                            <div className="bg-slate-50 rounded-2xl p-3 border border-slate-100">
-                                <p className="text-[10px] font-bold text-slate-400 uppercase">Active</p>
-                                <p className="text-2xl font-black text-slate-900">{availableResolvers.length}</p>
-                                <p className="text-[10px] font-bold text-emerald-500">Resolvers</p>
-                            </div>
-
-                            <div className="bg-slate-50 rounded-2xl p-3 border border-slate-100">
-                                <div className="flex items-end gap-1 h-[40px]">
-                                    {workloadBuckets.map((count, i) => (
-                                        <div
-                                            key={i}
-                                            className="w-4 bg-slate-300 rounded-t-sm transition-all"
-                                            style={{ height: `${Math.max(4, count * 10)}px` }}
-                                        />
-                                    ))}
-                                </div>
-                                <p className="text-[10px] font-bold text-slate-400 mt-2 uppercase">Load</p>
-                            </div>
-                        </div>
-                    </div>
+                                </motion.div>
+                            </>
+                        )}
+                    </AnimatePresence>
                 </div>
+                {/* Status filter pill */}
+                <div className="flex-1 relative">
+                    <select
+                        value={statusFilter}
+                        onChange={(e) => handleStatusChange(e.target.value)}
+                        className="w-full appearance-none bg-white border border-slate-200 rounded-full pl-3 pr-8 h-9 text-xs font-bold text-slate-700 focus:outline-none"
+                    >
+                        <option value="all">All Status</option>
+                        <option value="open,assigned,in_progress,blocked">Open</option>
+                        <option value="resolved,closed">Completed</option>
+                        <option value="waitlist">Waitlist</option>
+                        <option value="client_raised">Client Raised</option>
+                    </select>
+                    <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400 pointer-events-none" />
+                </div>
+            </div>
 
-                {/* Right Panel */}
-                <div className="col-span-12 lg:col-span-4 space-y-5">
-                    {/* Waitlist */}
+            {/* ── GRID ── */}
+            <div className="grid grid-cols-12 gap-3 lg:gap-5 px-3 lg:px-5 pb-3 lg:pb-0">
+
+                {/* ── RIGHT PANEL (Waitlist + Manual Assignment) — order-1 on mobile ── */}
+                <div className="col-span-12 lg:col-span-4 order-1 lg:order-2 space-y-3 lg:space-y-5">
+
+                    {/* Waitlist card */}
                     <div className="bg-indigo-50 border border-indigo-100 rounded-[24px] p-5 relative overflow-hidden">
                         <div className="absolute top-0 right-0 w-24 h-24 bg-indigo-100/50 rounded-full -mr-8 -mt-8" />
-
                         <div className="flex items-center justify-between mb-3 relative z-10">
                             <h2 className="text-xs font-black text-indigo-400 uppercase tracking-widest">Waitlist</h2>
                             <span className="bg-white/50 px-2 py-1 rounded-lg text-[10px] font-bold text-indigo-500">{waitlistTickets.length} Pending</span>
                         </div>
-
                         <p className="text-3xl font-black text-indigo-900 mb-2 relative z-10">{waitlistTickets.length}</p>
                         <p className="text-[10px] font-bold text-indigo-400 mb-4 uppercase tracking-widest relative z-10">Needs Classification</p>
-
                         <div className="max-h-[160px] overflow-y-auto pr-1 space-y-2 relative z-10 custom-scrollbar">
                             {waitlistTickets.map(t => (
                                 <div
@@ -535,27 +493,21 @@ export default function AdminSPOCDashboard({
                                 </div>
                             ))}
                         </div>
-
                         <button
-                            onClick={() => {
-                                if (waitlistTickets[0]) {
-                                    router.push(`/tickets/${waitlistTickets[0].id}?from=requests`);
-                                }
-                            }}
+                            onClick={() => { if (waitlistTickets[0]) router.push(`/tickets/${waitlistTickets[0].id}?from=requests`); }}
                             className="w-full mt-2 py-3 bg-indigo-600 text-white rounded-xl text-xs font-black uppercase tracking-widest hover:bg-indigo-700 transition-colors shadow-lg shadow-indigo-200 relative z-10"
                         >
                             Review & Classify
                         </button>
                     </div>
 
-                    {/* Manual Assignment */}
-                    <div className="bg-white border border-slate-100 rounded-[24px] p-5 shadow-sm">
+                    {/* Manual Assignment — hidden on mobile */}
+                    <div className="hidden lg:block bg-white border border-slate-100 rounded-[24px] p-5 shadow-sm">
                         <h2 className="text-xs font-black text-slate-400 mb-4 uppercase tracking-widest">Manual Assignment</h2>
-
                         {selectedTicket ? (
                             <div className="space-y-4">
                                 <div className="p-3 bg-slate-50 rounded-xl border border-slate-100">
-                                    <p className="text-[10px] text-slate-400 font-bold uppercase mb-1">Assiging Ticket</p>
+                                    <p className="text-[10px] text-slate-400 font-bold uppercase mb-1">Assigning Ticket</p>
                                     <p className="text-sm font-bold text-slate-900 line-clamp-2">{selectedTicket.title}</p>
                                 </div>
                                 <select
@@ -587,13 +539,98 @@ export default function AdminSPOCDashboard({
                     </div>
                 </div>
 
-                {/* SLA Risk Queue */}
-                <div className="col-span-12 lg:col-span-6 bg-white border border-slate-100 rounded-[24px] p-5 shadow-sm">
+                {/* ── TICKET BOARD — order-2 on mobile ── */}
+                <div className="col-span-12 lg:col-span-8 order-2 lg:order-1 bg-white border border-slate-100 rounded-[24px] shadow-sm overflow-hidden">
+
+                    {/* Mobile sub-header (hidden on desktop) */}
+                    <div className="flex items-center justify-between px-5 pt-5 pb-3 lg:hidden">
+                        <div>
+                            <h2 className="text-base font-black text-slate-900">Request Board</h2>
+                            <p className="text-xs font-bold text-slate-400 mt-0.5">{propertyName || 'All Properties'}</p>
+                        </div>
+                        <div className="flex items-center bg-slate-100 p-0.5 rounded-xl">
+                            <button
+                                onClick={() => setTimePeriod('today')}
+                                className={`px-3 py-1.5 text-[10px] font-black uppercase tracking-tight rounded-lg transition-all ${timePeriod === 'today' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                            >
+                                Today
+                            </button>
+                            <button
+                                onClick={() => setTimePeriod('all')}
+                                className={`px-3 py-1.5 text-[10px] font-black uppercase tracking-tight rounded-lg transition-all ${timePeriod === 'all' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                            >
+                                All
+                            </button>
+                        </div>
+                    </div>
+
+                    {/* Live Ticket Board label */}
+                    <div className="flex items-center gap-2 px-5 pt-5 pb-3 lg:pt-5 lg:pb-4">
+                        <span className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse" />
+                        <span className="text-xs font-black text-slate-400 uppercase tracking-widest">Live Ticket Board</span>
+                    </div>
+
+                    {/* Ticket list */}
+                    <div className="px-5 pb-5 overflow-auto max-h-[520px] space-y-1">
+                        {loading ? (
+                            [1, 2, 3, 4, 5].map((i) => (
+                                <div key={i} className="p-3 rounded-xl border border-slate-100 space-y-2">
+                                    <div className="flex items-center gap-2">
+                                        <Skeleton className="h-4 w-10" />
+                                        <Skeleton className="h-4 w-16 rounded" />
+                                        <Skeleton className="h-4 w-12 ml-auto" />
+                                    </div>
+                                    <Skeleton className="h-4 w-3/4" />
+                                </div>
+                            ))
+                        ) : tickets.length === 0 ? (
+                            <div className="py-12 text-center text-slate-400 font-bold italic text-xs">
+                                No active tickets found.
+                            </div>
+                        ) : (
+                            tickets.map((ticket) => {
+                                const sla = getSLAStatus(ticket.sla_deadline, ticket.sla_breached, ticket.sla_paused);
+                                return (
+                                    <div
+                                        key={ticket.id}
+                                        className={`p-3 rounded-xl border cursor-pointer transition-all hover:shadow-sm ${selectedTicket?.id === ticket.id ? 'bg-emerald-50 border-emerald-200' : 'border-slate-100 hover:bg-slate-50'}`}
+                                        onClick={() => router.push(`/tickets/${ticket.id}?from=requests`)}
+                                    >
+                                        {/* Row 1: ticket number, status badge, SLA badge, delete */}
+                                        <div className="flex items-center gap-2 mb-1">
+                                            <span className="text-[10px] font-black text-slate-400">{ticket.ticket_number?.slice(-5)}</span>
+                                            <span className={`px-2 py-0.5 rounded text-[10px] font-black uppercase ${ticket.status === 'resolved' ? 'bg-emerald-100 text-emerald-600' : ticket.status === 'in_progress' ? 'bg-blue-100 text-blue-600' : 'bg-slate-100 text-slate-600'}`}>
+                                                {ticket.status?.replace(/_/g, ' ')}
+                                            </span>
+                                            <div className="ml-auto flex items-center gap-2">
+                                                {sla && (
+                                                    <span className={`px-2 py-0.5 rounded-md text-[10px] font-black uppercase ${sla.color}`}>
+                                                        {sla.text}
+                                                    </span>
+                                                )}
+                                                <button
+                                                    onClick={(e) => handleDeleteTicket(e, ticket.id)}
+                                                    className="p-1 text-slate-300 hover:text-rose-500 rounded transition-colors"
+                                                >
+                                                    <Trash2 className="w-3.5 h-3.5" />
+                                                </button>
+                                            </div>
+                                        </div>
+                                        {/* Row 2: full title */}
+                                        <p className="text-xs font-medium text-slate-800 leading-snug">{ticket.title}</p>
+                                    </div>
+                                );
+                            })
+                        )}
+                    </div>
+                </div>
+
+                {/* ── SLA RISK QUEUE — hidden on mobile ── */}
+                <div className="hidden lg:block col-span-12 lg:col-span-6 bg-white border border-slate-100 rounded-[24px] p-5 shadow-sm">
                     <h2 className="text-xs font-black text-slate-400 mb-4 flex items-center gap-2 uppercase tracking-widest">
                         <AlertTriangle className="w-4 h-4 text-amber-500" />
                         SLA Risk Queue
                     </h2>
-
                     {slaRiskTickets.length === 0 ? (
                         <div className="text-center text-slate-400 py-8 bg-slate-50 rounded-2xl border border-dashed border-slate-200">
                             <span className="text-xs font-bold">No tickets at SLA risk</span>
@@ -626,12 +663,11 @@ export default function AdminSPOCDashboard({
                     )}
                 </div>
 
-                {/* Audit Log + Quick Actions */}
-                <div className="col-span-12 lg:col-span-6 grid grid-cols-2 gap-5">
+                {/* ── AUDIT LOG + QUICK ACTIONS — hidden on mobile ── */}
+                <div className="hidden lg:grid col-span-12 lg:col-span-6 grid-cols-2 gap-5">
                     {/* Audit Log */}
                     <div className="bg-white border border-slate-100 rounded-[24px] p-5 shadow-sm">
                         <h2 className="text-xs font-black text-slate-400 mb-4 uppercase tracking-widest">Override & Audit Log</h2>
-
                         <div className="space-y-3 text-xs max-h-[150px] overflow-auto pr-2">
                             {activities.length === 0 ? (
                                 <p className="text-slate-400 italic font-medium text-center py-4">No recent activity</p>
@@ -642,9 +678,7 @@ export default function AdminSPOCDashboard({
                                             <Clock className="w-3 h-3 text-slate-400" />
                                         </div>
                                         <div>
-                                            <p className="font-bold text-slate-700">
-                                                {act.user?.full_name || 'System'}
-                                            </p>
+                                            <p className="font-bold text-slate-700">{act.user?.full_name || 'System'}</p>
                                             <p className="text-[10px] leading-tight">
                                                 {act.action.replace(/_/g, ' ')}
                                                 {act.new_value && <span className="text-slate-900 font-medium"> → {act.new_value.slice(0, 20)}</span>}
@@ -654,7 +688,6 @@ export default function AdminSPOCDashboard({
                                 ))
                             )}
                         </div>
-
                         <button
                             onClick={() => selectedTicket && router.push(`/tickets/${selectedTicket.id}?from=requests`)}
                             className="w-full mt-4 py-3 bg-slate-50 hover:bg-slate-100 text-slate-500 rounded-xl text-xs font-bold transition-colors uppercase tracking-wider"
@@ -666,7 +699,6 @@ export default function AdminSPOCDashboard({
                     {/* Quick Actions */}
                     <div className="bg-white border border-slate-100 rounded-[24px] p-5 shadow-sm">
                         <h2 className="text-xs font-black text-slate-400 mb-4 uppercase tracking-widest">Quick Actions</h2>
-
                         <div className="grid grid-cols-2 gap-3">
                             <button
                                 onClick={() => selectedTicket && handlePauseSLA(selectedTicket.id, !selectedTicket.sla_paused)}
@@ -683,11 +715,7 @@ export default function AdminSPOCDashboard({
                                 AI Re-eval
                             </button>
                             <button
-                                onClick={() => {
-                                    if (selectedTicket) {
-                                        setShowOverrideModal(true);
-                                    }
-                                }}
+                                onClick={() => { if (selectedTicket) setShowOverrideModal(true); }}
                                 disabled={!selectedTicket}
                                 className="py-3 bg-amber-50 text-amber-600 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-amber-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                             >
@@ -704,7 +732,7 @@ export default function AdminSPOCDashboard({
                 </div>
             </div>
 
-            {/* Override Classification Modal */}
+            {/* ── OVERRIDE CLASSIFICATION MODAL ── */}
             <AnimatePresence>
                 {showOverrideModal && selectedTicket && (
                     <motion.div
@@ -726,7 +754,6 @@ export default function AdminSPOCDashboard({
                                     <X className="w-6 h-6" />
                                 </button>
                             </div>
-
                             <p className="text-sm font-bold text-slate-900 mb-1">Ticket: {selectedTicket.title}</p>
                             <p className="text-xs text-slate-500 mb-5 font-medium">
                                 Current Category: {
@@ -735,7 +762,6 @@ export default function AdminSPOCDashboard({
                                         : (selectedTicket.category?.name || 'Unclassified')
                                 }
                             </p>
-
                             <select
                                 value={overrideCategory}
                                 onChange={(e) => setOverrideCategory(e.target.value)}
@@ -747,7 +773,6 @@ export default function AdminSPOCDashboard({
                                     <option key={c.id} value={c.id}>{c.name}</option>
                                 ))}
                             </select>
-
                             <div className="flex gap-3">
                                 <button
                                     onClick={() => setShowOverrideModal(false)}

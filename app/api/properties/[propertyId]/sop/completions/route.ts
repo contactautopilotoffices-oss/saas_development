@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/frontend/utils/supabase/server';
+import { supabaseAdmin } from '@/backend/lib/supabase/admin';
 
 export async function GET(
     request: NextRequest,
@@ -78,8 +79,8 @@ export async function POST(
             return NextResponse.json({ error: 'templateId is required' }, { status: 400 });
         }
 
-        // Get org ID from property
-        const { data: property, error: propError } = await supabase
+        // Use admin client to bypass RLS for all data operations
+        const { data: property, error: propError } = await supabaseAdmin
             .from('properties')
             .select('organization_id')
             .eq('id', propertyId)
@@ -89,10 +90,10 @@ export async function POST(
             return NextResponse.json({ error: 'Property not found' }, { status: 404 });
         }
 
-        // Get template to verify it exists
-        const { data: template, error: templateError } = await supabase
+        // Verify template exists and get its items (admin bypasses RLS)
+        const { data: template, error: templateError } = await supabaseAdmin
             .from('sop_templates')
-            .select('id')
+            .select('id, frequency, start_time, items:sop_checklist_items(*)')
             .eq('id', templateId)
             .eq('property_id', propertyId)
             .single();
@@ -103,8 +104,49 @@ export async function POST(
 
         const finalCompletionDate = completionDate || new Date().toISOString().split('T')[0];
 
-        // Create completion
-        const { data: completion, error: completionError } = await supabase
+        // ── Compute slot_time for hourly templates ────────────────────────────
+        // Slot = start of the current interval window (e.g. "13:00" for the 1 PM slot).
+        // Daily/weekly templates use slot_time = null (one per day).
+        let slotTime: string | null = null;
+        const hourlyMatch = (template as any).frequency?.match(/^every_(\d+)_hours?$/);
+        if (hourlyMatch && (template as any).start_time) {
+            const intervalH = parseInt(hourlyMatch[1]);
+            const [sH, sM] = (template as any).start_time.slice(0, 5).split(':').map(Number);
+            const now = new Date();
+            const startMins = sH * 60 + sM;
+            const nowMins = now.getHours() * 60 + now.getMinutes();
+            const elapsed = nowMins - startMins;
+            if (elapsed >= 0) {
+                const slotIndex = Math.floor(elapsed / (intervalH * 60));
+                const slotStartMins = startMins + slotIndex * intervalH * 60;
+                const h = Math.floor(slotStartMins / 60) % 24;
+                const mn = slotStartMins % 60;
+                slotTime = `${String(h).padStart(2, '0')}:${String(mn).padStart(2, '0')}`;
+            }
+        }
+
+        // ── Deduplicate: join any existing session for this slot ─────────────
+        // Checks both in_progress AND completed so one slot = one shared completion.
+        let dedupQuery = supabaseAdmin
+            .from('sop_completions')
+            .select('*, items:sop_completion_items(*)')
+            .eq('template_id', templateId)
+            .eq('property_id', propertyId)
+            .eq('completion_date', finalCompletionDate)
+            .in('status', ['in_progress', 'completed']);
+
+        if (slotTime) {
+            dedupQuery = (dedupQuery as any).eq('slot_time', slotTime);
+        }
+
+        const { data: existing } = await (dedupQuery as any).maybeSingle();
+
+        if (existing) {
+            return NextResponse.json({ success: true, completion: existing });
+        }
+
+        // Create completion (use admin so open-template staff can always insert)
+        const { data: completion, error: completionError } = await supabaseAdmin
             .from('sop_completions')
             .insert({
                 template_id: templateId,
@@ -114,6 +156,7 @@ export async function POST(
                 completion_date: finalCompletionDate,
                 status: 'in_progress',
                 notes,
+                ...(slotTime ? { slot_time: slotTime } : {}),
             })
             .select()
             .single();
@@ -122,26 +165,16 @@ export async function POST(
             return NextResponse.json({ error: completionError.message }, { status: 500 });
         }
 
-        // Fetch template items
-        const { data: items, error: itemsError } = await supabase
-            .from('sop_checklist_items')
-            .select('*')
-            .eq('template_id', templateId)
-            .order('order_index', { ascending: true });
-
-        if (itemsError) {
-            return NextResponse.json({ error: itemsError.message }, { status: 500 });
-        }
-
-        // Create completion items (unchecked)
-        if (items && items.length > 0) {
+        // Create completion items from template items (admin bypasses RLS)
+        const items: any[] = (template as any).items || [];
+        if (items.length > 0) {
             const completionItemsToInsert = items.map((item: any) => ({
                 completion_id: completion.id,
                 checklist_item_id: item.id,
                 is_checked: false,
             }));
 
-            const { error: insertError } = await supabase
+            const { error: insertError } = await supabaseAdmin
                 .from('sop_completion_items')
                 .insert(completionItemsToInsert);
 
@@ -150,13 +183,10 @@ export async function POST(
             }
         }
 
-        // Fetch completion with items
-        const { data: completeCompletion } = await supabase
+        // Fetch full completion with items (admin bypasses RLS)
+        const { data: completeCompletion } = await supabaseAdmin
             .from('sop_completions')
-            .select(`
-                *,
-                items:sop_completion_items(*)
-            `)
+            .select('*, items:sop_completion_items(*)')
             .eq('id', completion.id)
             .single();
 

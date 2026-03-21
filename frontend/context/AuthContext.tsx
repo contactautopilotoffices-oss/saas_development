@@ -27,6 +27,7 @@ interface AuthContextType {
     signIn: (email: string, password: string) => Promise<any>;
     signUp: (email: string, password: string, fullName: string) => Promise<any>;
     signInWithGoogle: (propertyCode?: string, redirectPath?: string) => Promise<void>;
+    signInWithApple: (propertyCode?: string, redirectPath?: string) => Promise<void>;
     signOut: () => Promise<void>;
     resetPassword: (email: string) => Promise<void>;
     // Cache helpers
@@ -155,30 +156,54 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }, [supabase, fetchMembership]);
 
     const signIn = useCallback(async (email: string, password: string) => {
-        const response = await fetch('/api/auth/login', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ email, password }),
-        });
+        let sessionData;
 
-        const result = await response.json();
-        if (!response.ok) throw new Error(result.error || 'Login failed');
+        try {
+            const response = await fetch('/api/auth/login', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email, password }),
+            });
+
+            const result = await response.json();
+
+            // If server route is unreachable (503 / fetch failed), fall back to client-side login
+            if (response.status === 503 || (result.error && result.error.toLowerCase().includes('unable to reach'))) {
+                const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+                if (error) throw new Error(error.message);
+                sessionData = data.session;
+            } else if (!response.ok) {
+                throw new Error(result.error || 'Login failed');
+            }
+        } catch (fetchError: any) {
+            // Network error hitting the API route itself — fall back to direct client login
+            if (fetchError.message === 'Failed to fetch' || fetchError.message?.includes('fetch')) {
+                const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+                if (error) throw new Error(error.message);
+                sessionData = data.session;
+            } else {
+                throw fetchError;
+            }
+        }
 
         // Sync session to browser client
-        const { data, error } = await supabase.auth.getSession();
-        if (error) throw error;
+        if (!sessionData) {
+            const { data, error } = await supabase.auth.getSession();
+            if (error) throw error;
+            sessionData = data.session;
+        }
 
         // Manually update local state to trigger immediate UI response
-        if (data.session) {
-            setSession(data.session);
-            setUser(data.session.user);
-            await fetchMembership(data.session.user.id);
+        if (sessionData) {
+            setSession(sessionData);
+            setUser(sessionData.user);
+            await fetchMembership(sessionData.user.id);
         }
 
         return {
             data: {
-                user: data.session?.user || null,
-                session: data.session
+                user: sessionData?.user || null,
+                session: sessionData
             },
             error: null
         };
@@ -192,6 +217,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
         const { error } = await supabase.auth.signInWithOAuth({
             provider: 'google',
+            options: {
+                redirectTo: url.toString(),
+                queryParams: propertyCode ? { state: propertyCode } : {}
+            }
+        });
+        if (error) throw error;
+    }, [supabase]);
+
+    const signInWithApple = useCallback(async (propertyCode?: string, redirectPath?: string) => {
+        const url = new URL(`${window.location.origin}/api/auth/callback`);
+        if (redirectPath) {
+            url.searchParams.set('redirect', redirectPath);
+        }
+
+        const { error } = await supabase.auth.signInWithOAuth({
+            provider: 'apple',
             options: {
                 redirectTo: url.toString(),
                 queryParams: propertyCode ? { state: propertyCode } : {}
@@ -249,10 +290,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         signIn,
         signUp,
         signInWithGoogle,
+        signInWithApple,
         signOut,
         resetPassword,
         refreshMembership
-    }), [user, session, isLoading, membership, isMembershipLoading, signIn, signUp, signInWithGoogle, signOut, resetPassword, refreshMembership]);
+    }), [user, session, isLoading, membership, isMembershipLoading, signIn, signUp, signInWithGoogle, signInWithApple, signOut, resetPassword, refreshMembership]);
 
     return (
         <AuthContext.Provider value={value}>

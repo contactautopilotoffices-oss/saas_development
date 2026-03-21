@@ -1,0 +1,277 @@
+{
+  "tickets": [
+    {
+      "id": "e29f8719-3e75-4c7c-bb58-f1ffd4936612",
+      "ticket_number": "TKT-1773321601375",
+      "status": "assigned",
+      "hierarchy_id": "b4281d95-ed2f-4fbf-aac7-2200e0e35ae0",
+      "assigned_to": "5fe04b2c-a77e-4d22-a95f-46836173f9ee",
+      "escalation_last_action_at": "2026-03-12T13:20:01.614+00:00",
+      "current_escalation_level": 0,
+      "escalation_paused": false,
+      "created_at": "2026-03-12T13:20:02.3413+00:00"
+    },
+    {
+      "id": "2f429ec6-d602-4cd7-bc7d-b9a98efc6f1e",
+      "ticket_number": "TKT-1773306584550",
+      "status": "closed",
+      "hierarchy_id": null,
+      "assigned_to": "e14d5d97-3275-4dee-8e08-a80ef807bb9f",
+      "escalation_last_action_at": "2026-03-12T09:09:44.692302+00:00",
+      "current_escalation_level": 1,
+      "escalation_paused": false,
+      "created_at": "2026-03-12T09:09:44.692302+00:00"
+    },
+    {
+      "id": "b89aed58-7a19-449c-84d6-4c6cb053da78",
+      "ticket_number": "TKT-1773306533870",
+      "status": "assigned",
+      "hierarchy_id": null,
+      "assigned_to": "c16ed4fd-a396-49f0-907e-0d83752e5139",
+      "escalation_last_action_at": "2026-03-12T09:08:53.98979+00:00",
+      "current_escalation_level": 1,
+      "escalation_paused": false,
+      "created_at": "2026-03-12T09:08:53.98979+00:00"
+    },
+    {
+      "id": "dc8513dd-5899-489c-8ec9-78d3886a2a4b",
+      "ticket_number": "TKT-1773304856276",
+      "status": "assigned",
+      "hierarchy_id": null,
+      "assigned_to": "b87de9f7-b884-47f6-8f8a-9bb002db96cc",
+      "escalation_last_action_at": "2026-03-12T08:40:56.398958+00:00",
+      "current_escalation_level": 1,
+      "escalation_paused": false,
+      "created_at": "2026-03-12T08:40:56.398958+00:00"
+    },
+    {
+      "id": "61dd46c5-5b2f-4383-8535-022aa2681caa",
+      "ticket_number": "TKT-1773304603740",
+      "status": "assigned",
+      "hierarchy_id": null,
+      "assigned_to": "17c3f0f6-0c24-4b45-803a-cbcef1d83460",
+      "escalation_last_action_at": "2026-03-12T08:36:43.851175+00:00",
+      "current_escalation_level": 1,
+      "escalation_paused": false,
+      "created_at": "2026-03-12T08:36:43.851175+00:00"
+    },
+    {
+      "id": "c9a87938-0a29-4b12-84e9-f36999c43415",
+      "ticket_number": "TKT-1773304603310",
+      "status": "assigned",
+      "hierarchy_id": null,
+      "assigned_to": "dbca82f1-8fa4-45f1-b6be-a7aebc6c8073",
+      "escalation_last_action_at": "2026-03-12T08:36:43.437797+00:00",
+      "current_escalation_level": 1,
+      "escalation_paused": false,
+      "created_at": "2026-03-12T08:36:43.437797+00:00"
+    },
+    {
+      "id": "c1859ec8-a4d5-4904-b664-f53e7b6f2df1",
+      "ticket_number": "TKT-1773304276625",
+      "status": "assigned",
+      "hierarchy_id": null,
+      "assigned_to": "b87de9f7-b884-47f6-8f8a-9bb002db96cc",
+      "escalation_last_action_at": "2026-03-12T08:31:16.868035+00:00",
+      "current_escalation_level": 1,
+      "escalation_paused": false,
+      "created_at": "2026-03-12T08:31:16.868035+00:00"
+    },
+    {
+      "id": "cacab956-f225-4e0d-bdd7-3149fc69dd93",
+      "ticket_number": "TKT-1773304216461",
+      "status": "assigned",
+      "hierarchy_id": null,
+      "assigned_to": "b87de9f7-b884-47f6-8f8a-9bb002db96cc",
+      "escalation_last_action_at": "2026-03-12T08:30:16.615642+00:00",
+      "current_escalation_level": 1,
+      "escalation_paused": false,
+      "created_at": "2026-03-12T08:30:16.615642+00:00"
+    },
+    {
+      "id": "1a65ea06-6929-4032-97c8-5662aaffe64c",
+      "ticket_number": "TKT-1773304114422",
+      "status": "assigned",
+      "hierarchy_id": null,
+      "assigned_to": "3bf16c6f-628f-4481-9f33-21d62ce804a5",
+      "escalation_last_action_at": "2026-03-12T08:28:34.566189+00:00",
+      "current_escalation_level": 1,
+      "escalation_paused": false,
+      "created_at": "2026-03-12T08:28:34.566189+00:00"
+    },
+    {
+      "id": "42865f3e-a8e0-4d9b-9d39-a19b0a4caa03",
+      "ticket_number": "TKT-1773303900232",
+      "status": "assigned",
+      "hierarchy_id": null,
+      "assigned_to": "b87de9f7-b884-47f6-8f8a-9bb002db96cc",
+      "escalation_last_action_at": "2026-03-12T08:25:00.335338+00:00",
+      "current_escalation_level": 1,
+      "escalation_paused": false,
+      "created_at": "2026-03-12T08:25:00.335338+00:00"
+    },
+    {
+      "id": "40704ea0-86ba-44e8-b03c-4673307b0c03",
+      "ticket_number": "TKT-1773303471874",
+      "status": "assigned",
+      "hierarchy_id": null,
+      "assigned_to": "17c3f0f6-0c24-4b45-803a-cbcef1d83460",
+      "escalation_last_action_at": "2026-03-12T08:17:52.510412+00:00",
+      "current_escalation_level": 1,
+      "escalation_paused": false,
+      "created_at": "2026-03-12T08:17:52.510412+00:00"
+    },
+    {
+      "id": "879d4325-4ba9-48a3-ae31-7ae901e54bd4",
+      "ticket_number": "TKT-1773293578401",
+      "status": "closed",
+      "hierarchy_id": null,
+      "assigned_to": "a2742add-b6b2-4e81-ab58-20fec7453572",
+      "escalation_last_action_at": "2026-03-12T05:32:58.537686+00:00",
+      "current_escalation_level": 1,
+      "escalation_paused": false,
+      "created_at": "2026-03-12T05:32:58.537686+00:00"
+    },
+    {
+      "id": "37cdf031-f38b-498a-a1d5-25850c2203eb",
+      "ticket_number": "TKT-1773289646745",
+      "status": "closed",
+      "hierarchy_id": null,
+      "assigned_to": "f6c55d5e-ef7e-4d00-bb80-8ae234cf2766",
+      "escalation_last_action_at": "2026-03-12T04:27:26.866534+00:00",
+      "current_escalation_level": 1,
+      "escalation_paused": false,
+      "created_at": "2026-03-12T04:27:26.866534+00:00"
+    },
+    {
+      "id": "9400b436-86bb-46c8-b63f-cfad73db30d0",
+      "ticket_number": "TKT-1773289300550",
+      "status": "assigned",
+      "hierarchy_id": null,
+      "assigned_to": "16b7528c-b421-4496-a0df-9bb6382b4d9c",
+      "escalation_last_action_at": "2026-03-12T04:21:40.793913+00:00",
+      "current_escalation_level": 1,
+      "escalation_paused": false,
+      "created_at": "2026-03-12T04:21:40.793913+00:00"
+    },
+    {
+      "id": "8b416aad-55b6-436e-bd45-19b2c5cbce0c",
+      "ticket_number": "TKT-1773288459751",
+      "status": "pending_validation",
+      "hierarchy_id": null,
+      "assigned_to": "40ee6d6b-c03b-4e30-aa9d-7619b49aad2c",
+      "escalation_last_action_at": "2026-03-12T04:07:40.340488+00:00",
+      "current_escalation_level": 1,
+      "escalation_paused": false,
+      "created_at": "2026-03-12T04:07:40.340488+00:00"
+    },
+    {
+      "id": "25024a45-661e-4b7a-bbb3-cc5410a265a8",
+      "ticket_number": "TKT-1773287201717",
+      "status": "assigned",
+      "hierarchy_id": null,
+      "assigned_to": "16ea475c-c313-4daa-9ec7-d6c78d109469",
+      "escalation_last_action_at": "2026-03-12T03:46:41.863289+00:00",
+      "current_escalation_level": 1,
+      "escalation_paused": false,
+      "created_at": "2026-03-12T03:46:41.863289+00:00"
+    },
+    {
+      "id": "b288313f-ee25-4c9d-a723-2ea1190fc86c",
+      "ticket_number": "TKT-1773286880973",
+      "status": "assigned",
+      "hierarchy_id": null,
+      "assigned_to": "1d7682a6-72e0-450b-b0b5-393c3654beb0",
+      "escalation_last_action_at": "2026-03-12T03:41:21.098164+00:00",
+      "current_escalation_level": 1,
+      "escalation_paused": false,
+      "created_at": "2026-03-12T03:41:21.098164+00:00"
+    },
+    {
+      "id": "0a8d23ee-92ab-496b-a2e0-0c990560538f",
+      "ticket_number": "TKT-1773286670287",
+      "status": "closed",
+      "hierarchy_id": null,
+      "assigned_to": "f6c55d5e-ef7e-4d00-bb80-8ae234cf2766",
+      "escalation_last_action_at": "2026-03-12T03:37:50.421555+00:00",
+      "current_escalation_level": 1,
+      "escalation_paused": false,
+      "created_at": "2026-03-12T03:37:50.421555+00:00"
+    },
+    {
+      "id": "8c574139-fe5d-4b9b-8ca3-32b509c645e6",
+      "ticket_number": "TKT-1773286508338",
+      "status": "closed",
+      "hierarchy_id": null,
+      "assigned_to": "a2742add-b6b2-4e81-ab58-20fec7453572",
+      "escalation_last_action_at": "2026-03-12T03:35:08.465179+00:00",
+      "current_escalation_level": 1,
+      "escalation_paused": false,
+      "created_at": "2026-03-12T03:35:08.465179+00:00"
+    },
+    {
+      "id": "1c6fc5df-5a6a-420a-85eb-1a0479783e4b",
+      "ticket_number": "TKT-1773286398142",
+      "status": "closed",
+      "hierarchy_id": null,
+      "assigned_to": "f6c55d5e-ef7e-4d00-bb80-8ae234cf2766",
+      "escalation_last_action_at": "2026-03-12T03:33:18.269033+00:00",
+      "current_escalation_level": 1,
+      "escalation_paused": false,
+      "created_at": "2026-03-12T03:33:18.269033+00:00"
+    }
+  ],
+  "hierarchies": [
+    {
+      "id": "b4281d95-ed2f-4fbf-aac7-2200e0e35ae0",
+      "organization_id": "211e1330-ad83-446d-941f-dcea48396798",
+      "property_id": "4f0f44eb-5169-4c67-9d09-325016125a8d",
+      "name": "ho hierarchy",
+      "description": null,
+      "is_active": true,
+      "created_by": "b128a31a-388c-4b04-bf02-3d6e15896309",
+      "created_at": "2026-03-12T11:56:48.508903+00:00",
+      "updated_at": "2026-03-12T11:56:48.508903+00:00",
+      "trigger_after_minutes": 1,
+      "is_default": true
+    }
+  ],
+  "levels": [
+    {
+      "id": "38f7ddfd-a984-472f-8226-8ed8b463b820",
+      "hierarchy_id": "b4281d95-ed2f-4fbf-aac7-2200e0e35ae0",
+      "level_number": 1,
+      "employee_id": "b128a31a-388c-4b04-bf02-3d6e15896309",
+      "escalation_time_minutes": 1,
+      "notification_channels": [
+        "push",
+        "email"
+      ],
+      "created_at": "2026-03-12T11:56:48.58227+00:00"
+    },
+    {
+      "id": "69e0fec5-fdc5-4b5f-9ef2-98a8f613b915",
+      "hierarchy_id": "b4281d95-ed2f-4fbf-aac7-2200e0e35ae0",
+      "level_number": 2,
+      "employee_id": "b076390b-e13e-4b28-967c-450433192805",
+      "escalation_time_minutes": 1,
+      "notification_channels": [
+        "push",
+        "email"
+      ],
+      "created_at": "2026-03-12T11:56:48.58227+00:00"
+    },
+    {
+      "id": "12e89927-6f0c-41f6-bce5-3c17852aa99b",
+      "hierarchy_id": "b4281d95-ed2f-4fbf-aac7-2200e0e35ae0",
+      "level_number": 3,
+      "employee_id": "46e4cd26-7978-4417-b6f4-6667d474af7d",
+      "escalation_time_minutes": 1,
+      "notification_channels": [
+        "push",
+        "email"
+      ],
+      "created_at": "2026-03-12T11:56:48.58227+00:00"
+    }
+  ]
+}

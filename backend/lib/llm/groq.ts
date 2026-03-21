@@ -178,6 +178,18 @@ export async function classifyWithGroq(input: LLMInput): Promise<GroqResponse> {
             };
         }
 
+        // Normalize priority to Title Case — Groq often returns lowercase
+        if (parsed && typeof parsed.priority === 'string') {
+            const p = parsed.priority.toLowerCase();
+            const map: Record<string, string> = { low: 'Low', medium: 'Medium', high: 'High', urgent: 'Urgent' };
+            parsed.priority = map[p] ?? parsed.priority;
+        }
+
+        // Normalize primary_category — Groq occasionally returns null for vague inputs
+        if (parsed && (parsed.primary_category === null || parsed.primary_category === undefined)) {
+            parsed.primary_category = input.candidate_buckets?.[0] ?? 'GENERAL_MAINTENANCE';
+        }
+
         const outputValidation = LLMOutputSchema.safeParse(parsed);
         if (!outputValidation.success) {
             console.error('[GroqClient] Invalid output schema:', outputValidation.error);

@@ -4,7 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import {
     AlertCircle, MessageSquare, User, Building2, Clock, CheckCircle2,
-    XCircle, RefreshCw, Filter, Send, ChevronRight, Camera, Plus, Pencil, X, Loader2, Activity
+    XCircle, RefreshCw, Filter, Send, ChevronRight, Camera, Plus, Pencil, X, Loader2, Activity, Search
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { createClient } from '@/frontend/utils/supabase/client';
@@ -30,13 +30,14 @@ interface Ticket {
     property: { id: string; name: string; code: string } | null;
     property_id?: string;
     creator: { id: string; full_name: string; email: string; property_memberships?: { role: string; property_id: string }[] };
-    assignee: { id: string; full_name: string; email: string } | null;
+    assignee: { id: string; full_name: string; email: string; user_photo_url?: string | null } | null;
     ticket_comments: { count: number }[];
     photo_before_url?: string;
     photo_after_url?: string;
     sla_paused?: boolean;
     sla_deadline?: string | null;
     internal?: boolean;
+    ticket_escalation_logs?: { from_level: number; to_level: number | null; escalated_at: string; from_employee?: { full_name: string; user_photo_url?: string | null } | null; to_employee?: { full_name: string; user_photo_url?: string | null } | null }[];
 }
 
 interface Comment {
@@ -60,6 +61,7 @@ const TicketsView: React.FC<TicketsViewProps> = ({ propertyId, canDelete, onNewR
     const { membership } = useAuth();
 
     const [statusFilter, setStatusFilter] = useState<string>(initialStatusFilter);
+    const [searchQuery, setSearchQuery] = useState('');
     const cacheKey = `tickets-${propertyId}-${statusFilter}`; // Use statusFilter here for dynamic key
 
     const [tickets, setTickets] = useState<Ticket[]>(() => getCachedData(`tickets-${propertyId}-${initialStatusFilter}`) || []);
@@ -253,6 +255,13 @@ const TicketsView: React.FC<TicketsViewProps> = ({ propertyId, canDelete, onNewR
         }
     };
 
+    const filteredTickets = searchQuery.trim()
+        ? tickets.filter(t =>
+            t.ticket_number?.toLowerCase().includes(searchQuery.trim().toLowerCase()) ||
+            t.title?.toLowerCase().includes(searchQuery.trim().toLowerCase())
+          )
+        : tickets;
+
     return (
         <div className="space-y-4 sm:space-y-6 px-1 sm:px-0">
             {/* Header with Filters */}
@@ -290,11 +299,27 @@ const TicketsView: React.FC<TicketsViewProps> = ({ propertyId, canDelete, onNewR
                     </div>
                     {!isLoading && (
                         <span className="px-2.5 py-1 bg-primary/10 text-primary text-xs font-bold rounded-full whitespace-nowrap">
-                            {tickets.length} Result{tickets.length !== 1 ? 's' : ''}
+                            {filteredTickets.length} Result{filteredTickets.length !== 1 ? 's' : ''}
                         </span>
                     )}
                 </div>
                 <div className="flex items-center gap-2 sm:gap-3">
+                    {/* Search by Ticket ID */}
+                    <div className="relative">
+                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-text-tertiary pointer-events-none" />
+                        <input
+                            type="text"
+                            value={searchQuery}
+                            onChange={e => setSearchQuery(e.target.value)}
+                            placeholder="Search by ticket ID..."
+                            className="h-9 pl-8 pr-3 w-44 sm:w-52 bg-surface border border-border rounded-[var(--radius-md)] text-xs font-semibold font-body text-text-primary placeholder-text-tertiary focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary hover:border-primary/50 transition-smooth"
+                        />
+                        {searchQuery && (
+                            <button onClick={() => setSearchQuery('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-text-tertiary hover:text-text-primary">
+                                <X className="w-3 h-3" />
+                            </button>
+                        )}
+                    </div>
                     {propertyId && !['org_super_admin', 'master_admin', 'owner'].includes(membership?.org_role || '') && (
                         <button
                             onClick={() => router.push(`/property/${propertyId}/flow-map?from=requests`)}
@@ -348,11 +373,13 @@ const TicketsView: React.FC<TicketsViewProps> = ({ propertyId, canDelete, onNewR
                             </div>
                         ))}
                     </div>
-                ) : tickets.length === 0 ? (
-                    <div className="p-12 text-center text-text-tertiary font-body">No tickets found</div>
+                ) : filteredTickets.length === 0 ? (
+                    <div className="p-12 text-center text-text-tertiary font-body">
+                        {searchQuery ? `No tickets found matching "${searchQuery}"` : 'No tickets found'}
+                    </div>
                 ) : (
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2 sm:gap-6 p-1.5 sm:p-6">
-                        {tickets.map((ticket) => (
+                        {filteredTickets.map((ticket) => (
                             <TicketCard
                                 key={ticket.id}
                                 id={ticket.id}
@@ -366,9 +393,21 @@ const TicketsView: React.FC<TicketsViewProps> = ({ propertyId, canDelete, onNewR
                                 ticketNumber={ticket.ticket_number}
                                 createdAt={ticket.created_at}
                                 assignedTo={ticket.assignee?.full_name}
+                                assigneePhotoUrl={ticket.assignee?.user_photo_url}
                                 photoUrl={ticket.photo_before_url}
                                 isSlaPaused={ticket.sla_paused}
                                 propertyName={ticket.property?.name}
+                                escalationChain={(() => {
+                                    const logs = ticket.ticket_escalation_logs;
+                                    if (!logs || logs.length === 0) return undefined;
+                                    const sorted = [...logs].sort((a, b) => new Date(a.escalated_at).getTime() - new Date(b.escalated_at).getTime());
+                                    const chain: { name: string; avatar?: string | null }[] = [];
+                                    sorted.forEach((log, i) => {
+                                        if (i === 0 && log.from_employee?.full_name) chain.push({ name: log.from_employee.full_name, avatar: log.from_employee.user_photo_url });
+                                        if (log.to_employee?.full_name) chain.push({ name: log.to_employee.full_name, avatar: log.to_employee.user_photo_url });
+                                    });
+                                    return chain.length > 0 ? chain : undefined;
+                                })()}
                                 raisedByTenant={(ticket.creator?.property_memberships || []).some((m) => m.property_id === (ticket.property_id || ticket.property?.id) && ['tenant', 'super_tenant'].includes((m.role || '').toLowerCase()))}
                                 onClick={() => router.push(`/tickets/${ticket.id}?from=requests`)}
                                 onEdit={canEditTicket(ticket) ? (e) => handleEditClick(e, ticket) : undefined}

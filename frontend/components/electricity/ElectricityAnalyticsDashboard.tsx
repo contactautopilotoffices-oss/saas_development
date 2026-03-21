@@ -2,15 +2,15 @@
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
-    Calendar, TrendingUp, Download, Zap, AlertTriangle,
-    BarChart3, Plus, X, IndianRupee, Activity, ChevronDown, Check
+    TrendingUp, Download, Zap, AlertTriangle,
+    BarChart3, Plus, X, IndianRupee, Activity, ChevronDown
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useParams } from 'next/navigation';
 import { createClient } from '@/frontend/utils/supabase/client';
 import ElectricityStaffDashboard from './ElectricityStaffDashboard';
 import GridTariffModal from './GridTariffModal';
-import { Line, LineChart, ResponsiveContainer, Tooltip, XAxis, Area, AreaChart, YAxis, CartesianGrid } from 'recharts';
+import { ResponsiveContainer, Tooltip, XAxis, Area, AreaChart, YAxis, CartesianGrid } from 'recharts';
 
 interface ElectricityMeter {
     id: string;
@@ -23,6 +23,7 @@ interface ElectricityReading {
     id: string;
     meter_id: string;
     reading_date: string;
+    created_at: string;
     opening_reading: number;
     closing_reading: number;
     computed_units: number; // raw units
@@ -32,14 +33,6 @@ interface ElectricityReading {
     multiplier_value_used: number;
     multiplier_value?: number; // legacy
     meter: { name: string; meter_type: string };
-}
-
-interface Metrics {
-    totalCost: number;
-    totalUnits: number;
-    avgDailyCost: number;
-    avgDailyUnits: number;
-    changeCost: number; // vs previous period
 }
 
 interface TrendPoint {
@@ -161,14 +154,15 @@ const ElectricityAnalyticsDashboard: React.FC<ElectricityAnalyticsDashboardProps
             return r.meter_id === selectedMeterId;
         };
 
+        // Sum pre-computed final_units per entry — each entry already stores
+        // (closing − opening) × multiplier correctly at log time.
+        // Span approach inflates when multiple meters have non-chaining readings.
         const calc = (readings: ElectricityReading[]) => {
             return readings.filter(filterFn).reduce((acc, r) => {
-                // v2.5: Dynamic fallback if cost was logged as 0 (due to missing tariff at logging time)
                 let cost = r.computed_cost || 0;
                 if (cost === 0 && activeTariff > 0) {
                     cost = (r.final_units ?? r.computed_units ?? 0) * activeTariff;
                 }
-
                 return {
                     cost: acc.cost + cost,
                     units: acc.units + (r.final_units ?? r.computed_units ?? 0)
@@ -191,7 +185,7 @@ const ElectricityAnalyticsDashboard: React.FC<ElectricityAnalyticsDashboardProps
             prevMonth,
             averages: { cost: avgDailyCost, units: avgDailyUnits }
         };
-    }, [rawReadings, viewMode, selectedMeterId]);
+    }, [rawReadings, viewMode, selectedMeterId, activeTariff]);
 
     // Derived Trend Data
     const chartData = useMemo(() => {
@@ -227,8 +221,8 @@ const ElectricityAnalyticsDashboard: React.FC<ElectricityAnalyticsDashboardProps
 
             result.push({
                 date: label,
-                cost: Math.round(dayTotals.cost),
-                units: Math.round(dayTotals.units)
+                cost: dayTotals.cost,
+                units: dayTotals.units
             });
         }
         return result;
@@ -241,7 +235,7 @@ const ElectricityAnalyticsDashboard: React.FC<ElectricityAnalyticsDashboardProps
     };
     const fmtUnits = (val: number) => {
         if (val === 0 || !val) return '—';
-        return `${(val || 0).toFixed(1).toLocaleString()} kVAh`;
+        return `${val.toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 3 })} kVAh`;
     };
 
     // Current Display Values based on Toggles
@@ -507,13 +501,13 @@ const ElectricityAnalyticsDashboard: React.FC<ElectricityAnalyticsDashboardProps
                         <div className="space-y-6">
                             <div>
                                 <div className="flex items-baseline gap-2">
-                                    <span className="text-2xl font-black text-slate-800">{fmtCost(Math.round(metrics.averages.cost), metrics.averages.units)}</span>
+                                    <span className="text-2xl font-black text-slate-800">{fmtCost(metrics.averages.cost, metrics.averages.units)}</span>
                                 </div>
                                 <div className="h-1 w-8 bg-orange-500 rounded-full mt-1" />
                             </div>
                             <div>
                                 <div className="flex items-baseline gap-2">
-                                    <span className="text-xl font-bold text-slate-600">{fmtUnits(Math.round(metrics.averages.units))}</span>
+                                    <span className="text-xl font-bold text-slate-600">{fmtUnits(metrics.averages.units)}</span>
                                 </div>
                                 <div className="h-1 w-8 bg-orange-300 rounded-full mt-1" />
                             </div>

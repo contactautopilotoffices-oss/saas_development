@@ -27,9 +27,11 @@ export interface TicketCardProps {
 
     // Optional
     assignedTo?: string; // Full name
+    assigneePhotoUrl?: string | null; // Profile photo for the person serving the request
     photoUrl?: string;
     isSlaPaused?: boolean;
     propertyName?: string; // Property name for Super Admin view
+    escalationChain?: { name: string; avatar?: string | null }[]; // Ordered: [original → ... → current]
 
     // Visual hint
     raisedByTenant?: boolean; // yellow border when ticket was raised by a client/tenant (internal === false)
@@ -65,9 +67,11 @@ export default function TicketCard({
     ticketNumber,
     createdAt,
     assignedTo,
+    assigneePhotoUrl,
     photoUrl,
     isSlaPaused,
     propertyName,
+    escalationChain,
     raisedByTenant,
     onClick,
     onEdit,
@@ -89,7 +93,8 @@ export default function TicketCard({
     const formattedDate = `${dateStr} • ${timeStr}`;
 
 
-    const isCritical = priority?.toUpperCase() === 'CRITICAL';
+    const isClosed = ['COMPLETED', 'CLOSED', 'RESOLVED'].includes(status?.toUpperCase() || '');
+    const isCritical = priority?.toUpperCase() === 'CRITICAL' && !isClosed;
 
     return (
         <motion.div
@@ -213,7 +218,52 @@ export default function TicketCard({
             {assignedTo && status !== 'OPEN' && (
                 <div className="flex items-center gap-[clamp(0.4rem,1.5cqw,0.5rem)]">
                     <span className="text-[clamp(0.75rem,3cqw,0.875rem)] text-gray-600">Serving Request:</span>
-                    <span className="text-[clamp(0.75rem,3cqw,0.875rem)] font-semibold text-gray-900">{assignedTo}</span>
+                    <div className="flex items-center gap-1.5">
+                        <div className="w-5 h-5 rounded-full flex-shrink-0 border border-gray-200 overflow-hidden">
+                            {assigneePhotoUrl ? (
+                                <img src={assigneePhotoUrl} alt={assignedTo} className="w-full h-full object-cover" />
+                            ) : (
+                                <div className="w-full h-full flex items-center justify-center text-[8px] font-bold bg-blue-100 text-blue-700">
+                                    {assignedTo.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()}
+                                </div>
+                            )}
+                        </div>
+                        <span className="text-[clamp(0.75rem,3cqw,0.875rem)] font-semibold text-gray-900">{assignedTo}</span>
+                    </div>
+                </div>
+            )}
+
+            {/* Escalation Chain — circles with arrows */}
+            {escalationChain && escalationChain.length > 0 && (
+                <div className="flex items-center gap-1 flex-wrap">
+                    <span className="text-[10px] text-red-500 font-semibold uppercase tracking-wider mr-1">Escalated</span>
+                    {escalationChain.map((person, i) => {
+                        const initials = person.name.split(' ').map((n: string) => n[0]).join('').slice(0, 2).toUpperCase();
+                        const isLast = i === escalationChain.length - 1;
+                        return (
+                            <React.Fragment key={i}>
+                                <div
+                                    title={person.name}
+                                    className={`w-6 h-6 rounded-full flex-shrink-0 border overflow-hidden
+                                        ${isLast ? 'border-red-300' : 'border-gray-200'}`}
+                                >
+                                    {person.avatar ? (
+                                        <img src={person.avatar} alt={person.name} className="w-full h-full object-cover" />
+                                    ) : (
+                                        <div className={`w-full h-full flex items-center justify-center text-[9px] font-bold
+                                            ${isLast ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-500'}`}>
+                                            {initials}
+                                        </div>
+                                    )}
+                                </div>
+                                {!isLast && (
+                                    <svg className="w-3 h-3 text-red-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                                        <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+                                    </svg>
+                                )}
+                            </React.Fragment>
+                        );
+                    })}
                 </div>
             )}
 

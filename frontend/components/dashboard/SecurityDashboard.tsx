@@ -1,9 +1,9 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import {
     LayoutDashboard, Ticket, Settings, LogOut, Plus,
-    CheckCircle2, Clock, MessageSquare, UsersRound, Coffee, UserCircle, Shield, Fuel, LogIn, LogOut as LogOutIcon, Menu, X, AlertCircle
+    Clock, UsersRound, UserCircle, Shield, Fuel, LogIn, Menu, X, AlertCircle, ClipboardCheck
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { createClient } from '@/frontend/utils/supabase/client';
@@ -15,12 +15,12 @@ import DieselStaffDashboard from '@/frontend/components/diesel/DieselStaffDashbo
 import VMSAdminDashboard from '@/frontend/components/vms/VMSAdminDashboard';
 import VMSKiosk from '@/frontend/components/vms/VMSKiosk';
 import TenantTicketingDashboard from '@/frontend/components/tickets/TenantTicketingDashboard';
-import { useTheme } from '@/frontend/context/ThemeContext';
-import { Sun, Moon } from 'lucide-react';
+import TicketsView from '@/frontend/components/dashboard/TicketsView';
 import SettingsView from './SettingsView';
+import SOPDashboard from '@/frontend/components/sop/SOPDashboard';
 
 // Types
-type Tab = 'overview' | 'requests' | 'checkinout' | 'visitors' | 'diesel' | 'settings' | 'profile';
+type Tab = 'overview' | 'requests' | 'checkinout' | 'visitors' | 'diesel' | 'checklist' | 'settings' | 'profile';
 
 interface Property {
     id: string;
@@ -32,7 +32,6 @@ interface Property {
 
 const SecurityDashboard = () => {
     const { user, signOut } = useAuth();
-    const { theme, toggleTheme } = useTheme();
     const params = useParams();
     const router = useRouter();
     const propertyId = params?.propertyId as string;
@@ -51,6 +50,7 @@ const SecurityDashboard = () => {
         securityAlerts: 0
     });
     const [sidebarOpen, setSidebarOpen] = useState(false);
+    const [showCreateForm, setShowCreateForm] = useState(false);
     const searchParams = useSearchParams();
 
     const supabase = createClient();
@@ -66,7 +66,7 @@ const SecurityDashboard = () => {
     // Restore tab from URL
     useEffect(() => {
         const tab = searchParams.get('tab');
-        if (tab && ['overview', 'requests', 'checkinout', 'visitors', 'diesel', 'settings', 'profile'].includes(tab)) {
+        if (tab && ['overview', 'requests', 'checkinout', 'visitors', 'diesel', 'checklist', 'settings', 'profile'].includes(tab)) {
             setActiveTab(tab as Tab);
         }
     }, [searchParams]);
@@ -324,6 +324,16 @@ const SecurityDashboard = () => {
                                 <Fuel className="w-4 h-4" />
                                 Diesel Logger
                             </button>
+                            <button
+                                onClick={() => handleTabChange('checklist')}
+                                className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 font-bold text-sm ${activeTab === 'checklist'
+                                    ? 'bg-primary text-text-inverse shadow-sm'
+                                    : 'text-text-secondary hover:bg-muted hover:text-text-primary'
+                                    }`}
+                            >
+                                <ClipboardCheck className="w-4 h-4" />
+                                Checklists
+                            </button>
                         </div>
                     </div>
 
@@ -424,12 +434,31 @@ const SecurityDashboard = () => {
                         >
                             {activeTab === 'overview' && <OverviewTab stats={kpiStats} />}
                             {activeTab === 'requests' && property && user && (
-                                <TenantTicketingDashboard
-                                    propertyId={property.id}
-                                    organizationId={property.organization_id || ''}
-                                    user={{ id: user.id, full_name: user.user_metadata?.full_name || 'Security' }}
-                                    propertyName={property.name}
-                                />
+                                <>
+                                    <TicketsView
+                                        propertyId={property.id}
+                                        onNewRequest={() => setShowCreateForm(true)}
+                                    />
+                                    {showCreateForm && (
+                                        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+                                            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto relative">
+                                                <button
+                                                    onClick={() => setShowCreateForm(false)}
+                                                    className="absolute top-4 right-4 p-2 rounded-lg hover:bg-slate-100 transition-colors z-10"
+                                                >
+                                                    <X className="w-5 h-5 text-slate-500" />
+                                                </button>
+                                                <TenantTicketingDashboard
+                                                    propertyId={property.id}
+                                                    organizationId={property.organization_id || ''}
+                                                    user={{ id: user.id, full_name: user.user_metadata?.full_name || 'Security' }}
+                                                    propertyName={property.name}
+                                                    isStaff={true}
+                                                />
+                                            </div>
+                                        </div>
+                                    )}
+                                </>
                             )}
                             {activeTab === 'checkinout' && property && (
                                 <div className="flex-1 w-full flex flex-col items-center">
@@ -438,6 +467,9 @@ const SecurityDashboard = () => {
                             )}
                             {activeTab === 'visitors' && <VMSAdminDashboard propertyId={propertyId} />}
                             {activeTab === 'diesel' && <DieselStaffDashboard />}
+                            {activeTab === 'checklist' && property && (
+                                <SOPDashboard propertyId={property.id} />
+                            )}
                             {activeTab === 'settings' && <SettingsView />}
                             {activeTab === 'profile' && (
                                 <div className="flex justify-center items-start py-8">

@@ -53,22 +53,11 @@ const SOPCompletionDetail: React.FC<SOPCompletionDetailProps> = ({ completionId,
     useEffect(() => {
         const fetchDetail = async () => {
             try {
-                const { data, error } = await supabase
-                    .from('sop_completions')
-                    .select(`
-                        *,
-                        template:sop_templates(*),
-                        user:users(full_name),
-                        items:sop_completion_items(
-                            *,
-                            checklist_item:sop_checklist_items(*),
-                            checked_by_user:users!sop_completion_items_checked_by_fkey(full_name)
-                        )
-                    `)
-                    .eq('id', completionId)
-                    .single();
+                const res = await fetch(`/api/properties/${propertyId}/sop/completions/${completionId}`);
+                const json = await res.json();
+                if (!res.ok) throw new Error(json.error || 'Failed to load completion');
 
-                if (error) throw error;
+                const data = json.completion;
 
                 // Sort items by order_index
                 if (data.items) {
@@ -79,15 +68,14 @@ const SOPCompletionDetail: React.FC<SOPCompletionDetailProps> = ({ completionId,
 
                 setCompletion(data);
             } catch (err: any) {
-                const msg = err?.message || err?.error_description || err?.details || JSON.stringify(err);
-                console.error('Error loading completion detail:', err?.code || '', msg, err);
+                console.error('Error loading completion detail:', err?.message || err);
             } finally {
                 setIsLoading(false);
             }
         };
 
         fetchDetail();
-    }, [completionId, supabase]);
+    }, [completionId, propertyId]);
 
     const handleRate = useCallback(async (itemId: string, rating: number) => {
         if (!currentUserId) return;
@@ -264,8 +252,25 @@ const SOPCompletionDetail: React.FC<SOPCompletionDetailProps> = ({ completionId,
 
     if (!completion) return null;
 
-    const checkedCount = completion.items?.filter((i: any) => i.is_checked || i.value).length || 0;
-    const totalCount = completion.items?.length || 0;
+    // If completion_items are missing (e.g. initialized before template had steps),
+    // fall back to template items shown as uncompleted so the audit breakdown isn't blank.
+    const effectiveItems: any[] = completion.items?.length > 0
+        ? completion.items
+        : (completion.template?.items || []).map((ti: any) => ({
+            id: ti.id,
+            checklist_item_id: ti.id,
+            checklist_item: ti,
+            is_checked: false,
+            value: null,
+            photo_url: null,
+            video_url: null,
+            checked_at: null,
+            checked_by_user: null,
+            satisfaction_rating: null,
+        }));
+
+    const checkedCount = effectiveItems.filter((i: any) => i.is_checked || i.value).length;
+    const totalCount = effectiveItems.length;
     const progress = totalCount > 0 ? (checkedCount / totalCount) * 100 : 0;
 
     return (
@@ -331,7 +336,7 @@ const SOPCompletionDetail: React.FC<SOPCompletionDetailProps> = ({ completionId,
             {/* Detailed Points List */}
             <div className="space-y-2 md:space-y-3">
                 <h3 className="text-[8px] md:text-[9px] font-black text-slate-400 uppercase tracking-[0.2em] px-1">Audit Breakdown</h3>
-                {completion.items?.map((item: any, index: number) => {
+                {effectiveItems.map((item: any, index: number) => {
                     const isCompleted = item.is_checked || item.value;
                     const templateItem = item.checklist_item;
                     const currentRating = item.satisfaction_rating as 1 | 2 | 3 | null;
@@ -525,7 +530,7 @@ const SOPCompletionDetail: React.FC<SOPCompletionDetailProps> = ({ completionId,
                     onClick={onBack}
                     className="px-6 md:px-8 py-2.5 md:py-3 bg-slate-900 text-white rounded-lg md:rounded-xl font-black text-[9px] md:text-[10px] uppercase tracking-widest hover:bg-slate-800 transition-all shadow-lg"
                 >
-                    Close Audit
+                    Close
                 </button>
             </div>
 

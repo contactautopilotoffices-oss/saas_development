@@ -11,16 +11,25 @@ interface SOPTemplateFormModalProps {
     onClose: () => void;
     propertyId: string;
     template?: any;
+    initialData?: {
+        title?: string;
+        description?: string;
+        category?: string;
+        frequency?: string;
+        items?: { title: string; type?: string }[];
+    };
     onSuccess?: () => void;
 }
 
-const SOPTemplateFormModal: React.FC<SOPTemplateFormModalProps> = ({ isOpen, onClose, propertyId, template, onSuccess }) => {
+const SOPTemplateFormModal: React.FC<SOPTemplateFormModalProps> = ({ isOpen, onClose, propertyId, template, initialData, onSuccess }) => {
     const [formData, setFormData] = useState({
         title: '',
         description: '',
         category: 'general',
         frequency: 'daily',
         assigned_to: [] as string[],
+        start_time: '',
+        end_time: '',
     });
 
 
@@ -32,8 +41,11 @@ const SOPTemplateFormModal: React.FC<SOPTemplateFormModalProps> = ({ isOpen, onC
         requires_photo: true,
         requires_comment: false,
         type: 'checkbox' as 'checkbox' | 'text' | 'number' | 'yes_no',
-        is_optional: false
+        is_optional: false,
+        start_time: '',
+        end_time: '',
     });
+    const [showStepTimeSlot, setShowStepTimeSlot] = useState(false);
     const [editingIndex, setEditingIndex] = useState<number | null>(null);
     const [isLoading, setIsLoading] = useState(false);
     const [propertyMembers, setPropertyMembers] = useState<any[]>([]);
@@ -69,11 +81,34 @@ const SOPTemplateFormModal: React.FC<SOPTemplateFormModalProps> = ({ isOpen, onC
                 category: template.category || 'general',
                 frequency: template.frequency || 'daily',
                 assigned_to: template.assigned_to || [],
-
+                start_time: template.start_time ? template.start_time.slice(0, 5) : '',
+                end_time: template.end_time ? template.end_time.slice(0, 5) : '',
             });
 
 
             setItems(template.items || []);
+        } else if (initialData) {
+            setFormData({
+                title: initialData.title || '',
+                description: initialData.description || '',
+                category: initialData.category || 'general',
+                frequency: initialData.frequency || 'daily',
+                assigned_to: [],
+                start_time: '',
+                end_time: '',
+            });
+            setItems(
+                (initialData.items || []).map((item, idx) => ({
+                    id: `ai-${idx}`,
+                    title: item.title,
+                    description: '',
+                    type: item.type || 'checkbox',
+                    requires_photo: false,
+                    requires_comment: false,
+                    is_optional: false,
+                    order_index: idx,
+                }))
+            );
         } else {
             setFormData({
                 title: '',
@@ -81,12 +116,14 @@ const SOPTemplateFormModal: React.FC<SOPTemplateFormModalProps> = ({ isOpen, onC
                 category: 'general',
                 frequency: 'daily',
                 assigned_to: [],
+                start_time: '',
+                end_time: '',
             });
 
 
             setItems([]);
         }
-    }, [template, isOpen]);
+    }, [template, initialData, isOpen]);
 
     const handleAddItem = () => {
         if (!newItem.title) {
@@ -120,9 +157,11 @@ const SOPTemplateFormModal: React.FC<SOPTemplateFormModalProps> = ({ isOpen, onC
             requires_photo: true,
             requires_comment: false,
             type: 'checkbox',
-            is_optional: false
+            is_optional: false,
+            start_time: '',
+            end_time: '',
         });
-
+        setShowStepTimeSlot(false);
     };
 
     const handleRemoveItem = (index: number) => {
@@ -148,7 +187,9 @@ const SOPTemplateFormModal: React.FC<SOPTemplateFormModalProps> = ({ isOpen, onC
                     requires_photo: it.requires_photo || false,
                     requires_comment: false,
                     is_optional: false,
-                    order_index: idx
+                    order_index: idx,
+                    start_time: it.start_time || null,
+                    end_time: it.end_time || null,
                 })),
             };
 
@@ -183,368 +224,443 @@ const SOPTemplateFormModal: React.FC<SOPTemplateFormModalProps> = ({ isOpen, onC
         }
     };
 
+    const inputCls = "w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl focus:outline-none focus:border-primary/40 focus:bg-white transition-all font-medium text-slate-900 text-sm placeholder:text-slate-400";
+    const labelCls = "block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1.5 px-1";
+
+    // ── 12-hour helpers ──────────────────────────────────────────────────────
+    /** "HH:MM" → { h12, minute, ampm } */
+    const to12 = (val: string) => {
+        if (!val) return { h12: '12', minute: '00', ampm: 'AM' };
+        const [h24, m] = val.split(':').map(Number);
+        const ampm = h24 >= 12 ? 'PM' : 'AM';
+        const h12 = h24 === 0 ? 12 : h24 > 12 ? h24 - 12 : h24;
+        return { h12: String(h12), minute: String(m).padStart(2, '0'), ampm };
+    };
+    /** { h12, minute, ampm } → "HH:MM" */
+    const to24 = (h12: string, minute: string, ampm: string) => {
+        let h = parseInt(h12);
+        if (ampm === 'AM' && h === 12) h = 0;
+        if (ampm === 'PM' && h !== 12) h += 12;
+        return `${String(h).padStart(2, '0')}:${minute}`;
+    };
+    /** "HH:MM" → "H:MM AM/PM" */
+    const fmt12 = (val: string) => {
+        const { h12, minute, ampm } = to12(val);
+        return `${h12}:${minute} ${ampm}`;
+    };
+
+    const TimeSelect = ({ value, onChange }: { value: string; onChange: (v: string) => void }) => {
+        const { h12, minute, ampm } = to12(value);
+        const hours = Array.from({ length: 12 }, (_, i) => String(i + 1));
+        const minutes = ['00', '15', '30', '45'];
+        const stepBtn = "w-6 h-6 flex items-center justify-center rounded-full bg-slate-100 hover:bg-primary hover:text-white text-slate-500 transition-all text-[10px] font-black select-none";
+        const valBox = "w-8 text-center font-black text-sm text-slate-900 leading-none";
+
+        const cycleHour = (dir: 1 | -1) => {
+            const idx = hours.indexOf(h12);
+            const next = hours[(idx + dir + 12) % 12];
+            onChange(to24(next, minute, ampm));
+        };
+        const cycleMinute = (dir: 1 | -1) => {
+            const idx = minutes.indexOf(minute);
+            const next = minutes[(idx + dir + 4) % 4];
+            onChange(to24(h12, next, ampm));
+        };
+        const toggleAmpm = () => onChange(to24(h12, minute, ampm === 'AM' ? 'PM' : 'AM'));
+
+        return (
+            <div className="flex items-center gap-2 px-3 py-2 bg-white border border-slate-200 rounded-2xl">
+                {/* Hour stepper */}
+                <div className="flex flex-col items-center gap-0.5">
+                    <button type="button" onClick={() => cycleHour(1)} className={stepBtn}>▲</button>
+                    <span className={valBox}>{h12.padStart(2, '0')}</span>
+                    <button type="button" onClick={() => cycleHour(-1)} className={stepBtn}>▼</button>
+                </div>
+                <span className="font-black text-slate-300 text-lg leading-none mb-0.5">:</span>
+                {/* Minute stepper */}
+                <div className="flex flex-col items-center gap-0.5">
+                    <button type="button" onClick={() => cycleMinute(1)} className={stepBtn}>▲</button>
+                    <span className={valBox}>{minute}</span>
+                    <button type="button" onClick={() => cycleMinute(-1)} className={stepBtn}>▼</button>
+                </div>
+                {/* AM/PM toggle */}
+                <button type="button" onClick={toggleAmpm}
+                    className="ml-1 px-2.5 py-1 rounded-xl bg-primary/10 text-primary font-black text-xs uppercase tracking-widest hover:bg-primary hover:text-white transition-all">
+                    {ampm}
+                </button>
+            </div>
+        );
+    };
+
+    // Compute scheduled run times preview
+    const isHourly = /^every_\d+_hours?$/.test(formData.frequency);
+    const scheduledTimes: string[] = React.useMemo(() => {
+        if (!isHourly || !formData.start_time || !formData.end_time) return [];
+        const m = formData.frequency.match(/^every_(\d+)_hours?$/);
+        if (!m) return [];
+        const intervalH = parseInt(m[1]);
+        const [sH, sM] = formData.start_time.split(':').map(Number);
+        const [eH, eM] = formData.end_time.split(':').map(Number);
+        const startMins = sH * 60 + sM;
+        const endMins = eH * 60 + eM;
+        if (endMins <= startMins) return [];
+        const times: string[] = [];
+        for (let t = startMins; t <= endMins; t += intervalH * 60) {
+            const h = Math.floor(t / 60);
+            const mn = t % 60;
+            times.push(`${String(h).padStart(2, '0')}:${String(mn).padStart(2, '0')}`);
+        }
+        return times;
+    }, [formData.frequency, formData.start_time, formData.end_time, isHourly]);
+
     return (
         <AnimatePresence>
             {isOpen && (
-                <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+                <div className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center">
+                    {/* Backdrop */}
                     <motion.div
                         initial={{ opacity: 0 }}
                         animate={{ opacity: 1 }}
                         exit={{ opacity: 0 }}
                         onClick={onClose}
-                        className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm"
+                        className="absolute inset-0 bg-slate-900/50 backdrop-blur-sm"
                     />
 
+                    {/* Sheet */}
                     <motion.div
-                        initial={{ opacity: 0, scale: 0.95, y: 20 }}
-                        animate={{ opacity: 1, scale: 1, y: 0 }}
-                        exit={{ opacity: 0, scale: 0.95, y: 20 }}
-                        className="relative bg-white border border-slate-200 rounded-xl md:rounded-3xl shadow-2xl w-full max-w-2xl max-h-[95vh] md:max-h-[90vh] overflow-hidden flex flex-col"
+                        initial={{ opacity: 0, y: 60 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: 60 }}
+                        transition={{ type: 'spring', damping: 28, stiffness: 300 }}
+                        className="relative bg-white w-full sm:max-w-lg sm:mx-4 rounded-t-3xl sm:rounded-3xl shadow-2xl flex flex-col max-h-[93vh] sm:max-h-[90vh] overflow-hidden"
                     >
+                        {/* Drag handle (mobile) */}
+                        <div className="sm:hidden flex justify-center pt-3 pb-1 flex-shrink-0">
+                            <div className="w-10 h-1 rounded-full bg-slate-200" />
+                        </div>
+
                         {/* Header */}
-                        <div className="flex justify-between items-center p-3 md:p-5 border-b border-slate-100 bg-white sticky top-0 z-10">
+                        <div className="flex justify-between items-start px-5 pt-3 pb-4 sm:pt-5 flex-shrink-0">
                             <div>
-                                <h2 className="text-lg md:text-2xl font-black text-slate-900 tracking-tight">
-                                    {template ? 'Edit Checklist Template' : 'Create Checklist Template'}
+                                <h2 className="text-xl font-black text-slate-900 tracking-tight leading-tight">
+                                    {template ? 'Edit Checklist' : 'Create Checklist'}<br className="sm:hidden" />
+                                    <span className="sm:inline"> Template</span>
                                 </h2>
-                                <p className="text-slate-500 text-[9px] md:text-[10px] font-bold uppercase tracking-widest mt-0.5">
+                                <p className="text-slate-400 text-[10px] font-black uppercase tracking-widest mt-1">
                                     Define standard procedures
                                 </p>
                             </div>
                             <button
                                 onClick={onClose}
-                                className="w-8 h-8 flex items-center justify-center bg-slate-100 text-slate-500 hover:bg-rose-50 hover:text-rose-500 rounded-xl transition-all duration-200 flex-shrink-0"
+                                className="w-8 h-8 flex items-center justify-center bg-slate-100 text-slate-500 hover:bg-slate-200 rounded-full transition-all flex-shrink-0 mt-0.5"
                             >
-                                <X size={18} />
+                                <X size={16} />
                             </button>
                         </div>
 
-                        <div className="flex-1 overflow-y-auto p-3 md:p-5 custom-scrollbar">
-                            <form onSubmit={handleSubmit} className="space-y-6">
-                                {/* Basic Info Section */}
-                                <div className="space-y-4">
-                                    <div className="flex items-center gap-2 text-primary">
-                                        <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center">
-                                            <Info size={16} className="font-bold" />
-                                        </div>
-                                        <h3 className="font-black uppercase tracking-widest text-xs">General Information</h3>
+                        {/* Scrollable body */}
+                        <div className="flex-1 overflow-y-auto px-5 pb-2 space-y-5">
+
+                            {/* ── GENERAL INFORMATION ── */}
+                            <div>
+                                <div className="flex items-center gap-2 mb-4">
+                                    <div className="w-7 h-7 rounded-full border-2 border-slate-200 flex items-center justify-center">
+                                        <Info size={13} className="text-slate-500" />
+                                    </div>
+                                    <span className="text-[11px] font-black text-slate-500 uppercase tracking-widest">General Information</span>
+                                </div>
+
+                                <div className="space-y-3">
+                                    <div>
+                                        <label className={labelCls}>Template Title *</label>
+                                        <input
+                                            type="text"
+                                            placeholder="e.g., Morning Shift Perimeter Check"
+                                            value={formData.title}
+                                            onChange={(e) => setFormData({ ...formData, title: e.target.value })}
+                                            className={inputCls}
+                                            required
+                                        />
                                     </div>
 
-                                    <div className="grid grid-cols-1 gap-4">
-                                        <div className="space-y-1.5">
-                                            <label className="text-[10px] font-black text-slate-500 uppercase tracking-wider px-1">Template Title *</label>
-                                            <input
-                                                type="text"
-                                                placeholder="e.g., Morning Shift Perimeter Check"
-                                                value={formData.title}
-                                                onChange={(e) => setFormData({ ...formData, title: e.target.value })}
-                                                className="w-full px-4 py-2.5 bg-slate-50 border-2 border-slate-100 rounded-xl focus:outline-none focus:border-primary/30 focus:bg-white transition-all font-bold text-slate-900 text-sm"
-                                                required
-                                            />
-                                        </div>
+                                    <div>
+                                        <label className={labelCls}>Description</label>
+                                        <textarea
+                                            placeholder="Briefly describe the purpose of this checklist..."
+                                            value={formData.description}
+                                            onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                                            rows={2}
+                                            className={`${inputCls} resize-none`}
+                                        />
+                                    </div>
 
-                                        <div className="space-y-1.5">
-                                            <label className="text-[10px] font-black text-slate-500 uppercase tracking-wider px-1">Description</label>
-                                            <textarea
-                                                placeholder="Briefly describe the purpose of this checklist..."
-                                                value={formData.description}
-                                                onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                                                rows={2}
-                                                className="w-full px-4 py-2.5 bg-slate-50 border-2 border-slate-100 rounded-xl focus:outline-none focus:border-primary/30 focus:bg-white transition-all font-medium text-slate-700 text-sm resize-none"
-                                            />
-                                        </div>
-
-                                        <div className="grid grid-cols-2 gap-4">
-                                            <div className="space-y-1.5">
-                                                <label className="text-[10px] font-black text-slate-500 uppercase tracking-wider px-1">Frequency</label>
-                                                <select
-                                                    value={formData.frequency}
-                                                    onChange={(e) => setFormData({ ...formData, frequency: e.target.value })}
-                                                    className="w-full px-4 py-2.5 bg-slate-50 border-2 border-slate-100 rounded-xl focus:outline-none focus:border-primary/30 focus:bg-white transition-all font-bold text-slate-900 text-sm appearance-none"
-                                                >
+                                    <div className="grid grid-cols-2 gap-3">
+                                        <div>
+                                            <label className={labelCls}>Frequency</label>
+                                            <select
+                                                value={formData.frequency}
+                                                onChange={(e) => setFormData({ ...formData, frequency: e.target.value })}
+                                                className={`${inputCls} appearance-none`}
+                                            >
+                                                <optgroup label="Hourly">
+                                                    <option value="every_1_hour">Every 1 Hour</option>
+                                                    <option value="every_2_hours">Every 2 Hours</option>
+                                                    <option value="every_3_hours">Every 3 Hours</option>
+                                                    <option value="every_4_hours">Every 4 Hours</option>
+                                                    <option value="every_6_hours">Every 6 Hours</option>
+                                                    <option value="every_8_hours">Every 8 Hours</option>
+                                                    <option value="every_12_hours">Every 12 Hours</option>
+                                                </optgroup>
+                                                <optgroup label="Standard">
                                                     <option value="daily">Daily</option>
                                                     <option value="weekly">Weekly</option>
                                                     <option value="monthly">Monthly</option>
                                                     <option value="on_demand">On Demand</option>
-                                                </select>
+                                                </optgroup>
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label className={labelCls}>Category</label>
+                                            <input
+                                                type="text"
+                                                placeholder="general"
+                                                value={formData.category}
+                                                onChange={(e) => setFormData({ ...formData, category: e.target.value })}
+                                                className={inputCls}
+                                            />
+                                        </div>
+                                    </div>
+
+                                    {/* Time Window — only relevant for hourly frequency */}
+                                    <div>
+                                        <label className={labelCls}>Active Time Window <span className="normal-case text-[9px] text-slate-400 font-medium">(optional)</span></label>
+                                        <div className="grid grid-cols-2 gap-3">
+                                            <div>
+                                                <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1.5 px-1">Start Time</p>
+                                                <TimeSelect
+                                                    value={formData.start_time || '09:00'}
+                                                    onChange={(v) => setFormData({ ...formData, start_time: v })}
+                                                />
                                             </div>
-                                            <div className="space-y-1.5">
-                                                <label className="text-[10px] font-black text-slate-500 uppercase tracking-wider px-1">Category</label>
-                                                <input
-                                                    type="text"
-                                                    placeholder="General"
-                                                    value={formData.category}
-                                                    onChange={(e) => setFormData({ ...formData, category: e.target.value })}
-                                                    className="w-full px-4 py-2.5 bg-slate-50 border-2 border-slate-100 rounded-xl focus:outline-none focus:border-primary/30 focus:bg-white transition-all font-bold text-slate-900 text-sm"
+                                            <div>
+                                                <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1.5 px-1">End Time</p>
+                                                <TimeSelect
+                                                    value={formData.end_time || '17:00'}
+                                                    onChange={(v) => setFormData({ ...formData, end_time: v })}
                                                 />
                                             </div>
                                         </div>
-
-                                        <div className="space-y-2">
-                                            <label className="text-[11px] font-black text-slate-500 uppercase tracking-wider px-1">Assign To (Enrolled People)</label>
-                                            <div className="relative">
-                                                <div
-                                                    onClick={() => setIsUserDropdownOpen(!isUserDropdownOpen)}
-                                                    className="flex flex-wrap gap-1.5 p-2.5 bg-slate-50 border-2 border-slate-100 rounded-xl min-h-[45px] hover:border-primary/20 transition-all cursor-pointer group"
-                                                >
-                                                    {formData.assigned_to.length > 0 ? (
-                                                        formData.assigned_to.map(userId => {
-                                                            const member = propertyMembers.find(m => m.id === userId);
-                                                            return (
-                                                                <div key={userId} className="flex items-center gap-1.5 px-2.5 py-1 bg-primary text-white rounded-lg text-[10px] font-black uppercase tracking-wider animate-in zoom-in-95 duration-200 shadow-sm shadow-primary/20">
-                                                                    <span>{member?.full_name || 'User'}</span>
-                                                                    <button
-                                                                        type="button"
-                                                                        onClick={(e) => {
-                                                                            e.stopPropagation();
-                                                                            setFormData({
-                                                                                ...formData,
-                                                                                assigned_to: formData.assigned_to.filter(id => id !== userId)
-                                                                            });
-                                                                        }}
-                                                                        className="w-3.5 h-3.5 flex items-center justify-center bg-white/20 hover:bg-white/30 rounded-full transition-colors"
-                                                                    >
-                                                                        <X size={10} />
-                                                                    </button>
-                                                                </div>
-                                                            );
-                                                        })
-                                                    ) : (
-                                                        <span className="text-slate-400 text-xs font-bold py-1 px-2">Select people to assign...</span>
-                                                    )}
-
-                                                    <div className="ml-auto self-center text-slate-400 group-hover:text-primary transition-colors">
-                                                        <motion.div
-                                                            animate={{ rotate: isUserDropdownOpen ? 180 : 0 }}
-                                                            transition={{ duration: 0.2 }}
-                                                        >
-                                                            <svg width="12" height="12" viewBox="0 0 12 12" fill="none" xmlns="http://www.w3.org/2000/svg">
-                                                                <path d="M2.5 4.5L6 8L9.5 4.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                                                            </svg>
-                                                        </motion.div>
-                                                    </div>
+                                        {/* Enable / clear toggle */}
+                                        {!formData.start_time && !formData.end_time ? (
+                                            <button type="button"
+                                                onClick={() => setFormData({ ...formData, start_time: '09:00', end_time: '17:00' })}
+                                                className="mt-2 text-[9px] font-black text-primary uppercase tracking-widest hover:underline px-1">
+                                                + Set time window
+                                            </button>
+                                        ) : (
+                                            <button type="button"
+                                                onClick={() => setFormData({ ...formData, start_time: '', end_time: '' })}
+                                                className="mt-2 text-[9px] font-black text-slate-400 uppercase tracking-widest hover:text-rose-500 px-1">
+                                                × Clear (run anytime)
+                                            </button>
+                                        )}
+                                        {scheduledTimes.length > 0 && (
+                                            <div className="mt-2 px-3 py-2 bg-primary/5 border border-primary/10 rounded-xl">
+                                                <p className="text-[9px] font-black text-primary uppercase tracking-widest mb-1.5">Scheduled runs</p>
+                                                <div className="flex flex-wrap gap-1.5">
+                                                    {scheduledTimes.map(t => (
+                                                        <span key={t} className="px-2 py-0.5 bg-primary text-white rounded-full text-[9px] font-black">{fmt12(t)}</span>
+                                                    ))}
                                                 </div>
-
-                                                <AnimatePresence>
-                                                    {isUserDropdownOpen && (
-                                                        <>
-                                                            <div
-                                                                className="fixed inset-0 z-10"
-                                                                onClick={() => setIsUserDropdownOpen(false)}
-                                                            />
-                                                            <motion.div
-                                                                initial={{ opacity: 0, y: 10, scale: 0.95 }}
-                                                                animate={{ opacity: 1, y: 0, scale: 1 }}
-                                                                exit={{ opacity: 0, y: 10, scale: 0.95 }}
-                                                                className="absolute left-0 right-0 mt-2 bg-white border-2 border-slate-100 rounded-xl max-h-48 overflow-y-auto p-1 custom-scrollbar shadow-2xl shadow-slate-200/50 z-20"
-                                                            >
-                                                                {propertyMembers.filter(m => !formData.assigned_to.includes(m.id)).length > 0 ? (
-                                                                    <div className="grid grid-cols-1 gap-1">
-                                                                        {propertyMembers.filter(m => !formData.assigned_to.includes(m.id)).map((member: any) => (
-                                                                            <button
-                                                                                key={member.id}
-                                                                                type="button"
-                                                                                onClick={() => {
-                                                                                    setFormData({
-                                                                                        ...formData,
-                                                                                        assigned_to: [...formData.assigned_to, member.id]
-                                                                                    });
-                                                                                    // Keep open for multiple selections, or close if preferred? 
-                                                                                    // User said "dropdown means after clicking that box list came out", usually suggests choosing one or multiple.
-                                                                                    // I'll keep it open for multi-select as it's more efficient.
-                                                                                }}
-                                                                                className="flex items-center gap-3 p-2 bg-white hover:bg-primary/5 rounded-lg text-left transition-all border border-transparent hover:border-primary/20 group"
-                                                                            >
-                                                                                <div className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center text-xs font-black text-slate-500 group-hover:bg-primary/10 group-hover:text-primary transition-colors">
-                                                                                    {member.full_name?.[0]}
-                                                                                </div>
-                                                                                <div className="flex flex-col min-w-0">
-                                                                                    <span className="text-[10px] font-black text-slate-700 uppercase tracking-wider truncate">{member.full_name}</span>
-                                                                                    <span className="text-[8px] font-bold text-slate-400 uppercase tracking-widest">{member.propertyRole || 'Member'}</span>
-                                                                                </div>
-                                                                                <div className="ml-auto opacity-0 group-hover:opacity-100 transition-opacity">
-                                                                                    <Plus size={14} className="text-primary" />
-                                                                                </div>
-                                                                            </button>
-                                                                        ))}
-                                                                    </div>
-                                                                ) : propertyMembers.length > 0 ? (
-                                                                    <div className="py-4 text-center text-[10px] font-black text-slate-400 uppercase tracking-widest">All members selected</div>
-                                                                ) : (
-                                                                    <div className="py-4 text-center text-[10px] font-black text-slate-400 uppercase tracking-widest">No members found</div>
-                                                                )}
-                                                            </motion.div>
-                                                        </>
-                                                    )}
-                                                </AnimatePresence>
-                                            </div>
-                                        </div>
-
-
-
-                                    </div>
-                                </div>
-
-                                <div className="space-y-4">
-                                    <div className="flex items-center gap-2 text-amber-600">
-                                        <div className="w-8 h-8 rounded-lg bg-amber-50 flex items-center justify-center">
-                                            <Plus size={16} className="font-bold" />
-                                        </div>
-                                        <h3 className="font-black uppercase tracking-widest text-xs">Steps & Checklist</h3>
-                                    </div>
-
-                                    <div className="space-y-3">
-                                        {items.length > 0 && (
-                                            <div className="grid grid-cols-1 gap-3">
-                                                {items.map((item, idx) => (
-                                                    <motion.div
-                                                        key={idx}
-                                                        layout
-                                                        initial={{ opacity: 0, x: -20 }}
-                                                        animate={{ opacity: 1, x: 0 }}
-                                                        className="flex items-center justify-between bg-white border-2 border-slate-100 p-3 rounded-xl group hover:border-primary/20 transition-all"
-                                                    >
-                                                        <div className="flex items-center gap-4">
-                                                            <div className="w-8 h-8 bg-slate-100 rounded-full flex items-center justify-center text-xs font-black text-slate-500">
-                                                                {idx + 1}
-                                                            </div>
-                                                            <div>
-                                                                <p className="font-black text-sm text-slate-900">{item.title}</p>
-                                                                <p className="text-xs text-slate-500 font-medium">{item.description || 'No description provided'}</p>
-                                                            </div>
-                                                        </div>
-                                                        <div className="flex items-center gap-2">
-                                                            <button
-                                                                type="button"
-                                                                onClick={() => {
-                                                                    setNewItem(item);
-                                                                    setEditingIndex(idx);
-                                                                }}
-                                                                className="p-2 text-slate-300 hover:text-primary hover:bg-primary/5 rounded-xl transition-all"
-                                                            >
-                                                                <Edit3 size={18} />
-                                                            </button>
-                                                            <button
-                                                                type="button"
-                                                                onClick={() => handleRemoveItem(idx)}
-                                                                className="p-2 text-slate-300 hover:text-rose-500 hover:bg-rose-50 rounded-xl transition-all"
-                                                            >
-                                                                <Trash2 size={18} />
-                                                            </button>
-                                                        </div>
-                                                    </motion.div>
-                                                ))}
                                             </div>
                                         )}
+                                    </div>
 
-                                        <div className="p-4 bg-slate-50 border-2 border-dashed border-slate-200 rounded-2xl space-y-4">
-                                            <div className="space-y-3">
-                                                <input
-                                                    type="text"
-                                                    placeholder="Step Title"
-                                                    value={newItem.title}
-                                                    onChange={(e) => setNewItem({ ...newItem, title: e.target.value })}
-                                                    className="w-full px-4 py-2 bg-white border border-slate-200 rounded-lg text-sm font-bold text-slate-900 focus:outline-none focus:border-primary/20 transition-all"
-                                                />
-                                                <textarea
-                                                    placeholder="Step Description/Instructions..."
-                                                    value={newItem.description}
-                                                    onChange={(e) => setNewItem({ ...newItem, description: e.target.value })}
-                                                    rows={2}
-                                                    className="w-full px-4 py-3 bg-white border-2 border-slate-100 rounded-xl text-sm font-medium text-slate-700 focus:outline-none focus:border-primary/20 transition-all resize-none"
-                                                />
-                                            </div>
-
-                                            <div className="grid grid-cols-1 gap-4">
-                                                <div>
-                                                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 ml-1">Response Type</label>
-                                                    <select
-                                                        value={newItem.type}
-                                                        onChange={(e) => setNewItem({ ...newItem, type: e.target.value as any })}
-                                                        className="w-full px-4 py-3 bg-white border-2 border-slate-100 rounded-xl text-sm font-bold text-slate-900 focus:outline-none appearance-none"
-                                                    >
-                                                        <option value="checkbox">Checkbox</option>
-                                                        <option value="text">Text Input</option>
-                                                        <option value="number">Number Input</option>
-                                                        <option value="yes_no">Yes / No Toggle</option>
-                                                    </select>
+                                    <div>
+                                        <label className={labelCls}>Assign To <span className="normal-case text-[9px] text-slate-400 font-medium">(optional — leave empty for open to all)</span></label>
+                                        <div className="relative">
+                                            <div
+                                                onClick={() => setIsUserDropdownOpen(!isUserDropdownOpen)}
+                                                className="flex flex-wrap gap-1.5 px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-2xl min-h-[48px] cursor-pointer hover:border-primary/40 transition-all"
+                                            >
+                                                {formData.assigned_to.length > 0 ? (
+                                                    formData.assigned_to.map(userId => {
+                                                        const member = propertyMembers.find(m => m.id === userId);
+                                                        return (
+                                                            <div key={userId} className="flex items-center gap-1 px-2 py-1 bg-primary text-white rounded-lg text-[10px] font-black uppercase tracking-wider">
+                                                                <span>{member?.full_name || 'User'}</span>
+                                                                <button type="button" onClick={(e) => { e.stopPropagation(); setFormData({ ...formData, assigned_to: formData.assigned_to.filter(id => id !== userId) }); }} className="w-3.5 h-3.5 flex items-center justify-center bg-white/20 rounded-full">
+                                                                    <X size={9} />
+                                                                </button>
+                                                            </div>
+                                                        );
+                                                    })
+                                                ) : (
+                                                    <span className="text-slate-400 text-sm font-medium self-center">Select people to assign...</span>
+                                                )}
+                                                <div className="ml-auto self-center text-slate-400">
+                                                    <motion.div animate={{ rotate: isUserDropdownOpen ? 180 : 0 }} transition={{ duration: 0.2 }}>
+                                                        <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M2.5 4.5L6 8L9.5 4.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>
+                                                    </motion.div>
                                                 </div>
                                             </div>
-
-                                            <div className="flex flex-wrap gap-4 px-1">
-                                            </div>
-
-
-
-                                            <button
-                                                type="button"
-                                                onClick={handleAddItem}
-                                                className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-primary text-white rounded-xl hover:opacity-90 transition-all shadow-lg shadow-primary/20 font-black uppercase tracking-widest text-[10px]"
-                                            >
-                                                {editingIndex !== null ? (
+                                            <AnimatePresence>
+                                                {isUserDropdownOpen && (
                                                     <>
-                                                        <Check size={16} />
-                                                        Update Item
-                                                    </>
-                                                ) : (
-                                                    <>
-                                                        <Plus size={16} />
-                                                        Add Step
+                                                        <div className="fixed inset-0 z-10" onClick={() => setIsUserDropdownOpen(false)} />
+                                                        <motion.div
+                                                            initial={{ opacity: 0, y: 8 }}
+                                                            animate={{ opacity: 1, y: 0 }}
+                                                            exit={{ opacity: 0, y: 8 }}
+                                                            className="absolute left-0 right-0 mt-2 bg-white border border-slate-200 rounded-2xl max-h-44 overflow-y-auto p-1 shadow-xl z-20"
+                                                        >
+                                                            {propertyMembers.filter(m => !formData.assigned_to.includes(m.id)).length > 0 ? (
+                                                                propertyMembers.filter(m => !formData.assigned_to.includes(m.id)).map((member: any) => (
+                                                                    <button key={member.id} type="button" onClick={() => setFormData({ ...formData, assigned_to: [...formData.assigned_to, member.id] })}
+                                                                        className="flex items-center gap-3 w-full p-2.5 hover:bg-slate-50 rounded-xl text-left transition-all">
+                                                                        <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center text-xs font-black text-primary">{member.full_name?.[0]}</div>
+                                                                        <div>
+                                                                            <div className="text-[11px] font-black text-slate-800 uppercase tracking-wide">{member.full_name}</div>
+                                                                            <div className="text-[9px] text-slate-400 font-medium uppercase">{member.propertyRole || 'Member'}</div>
+                                                                        </div>
+                                                                    </button>
+                                                                ))
+                                                            ) : (
+                                                                <div className="py-4 text-center text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                                                                    {propertyMembers.length > 0 ? 'All members selected' : 'No members found'}
+                                                                </div>
+                                                            )}
+                                                        </motion.div>
                                                     </>
                                                 )}
-                                            </button>
-                                            {editingIndex !== null && (
-                                                <button
-                                                    type="button"
-                                                    onClick={() => {
-                                                        setEditingIndex(null);
-                                                        setNewItem({
-                                                            title: '',
-                                                            description: '',
-                                                            requires_photo: true,
-                                                            requires_comment: false,
-                                                            type: 'checkbox',
-                                                            is_optional: false
-                                                        });
-                                                    }}
-                                                    className="w-full text-xs font-black text-slate-400 p-2 hover:text-slate-600 uppercase tracking-widest"
-                                                >
-                                                    Cancel Editing
-                                                </button>
-                                            )}
+                                            </AnimatePresence>
                                         </div>
                                     </div>
                                 </div>
-                            </form>
+                            </div>
+
+                            {/* ── STEPS & CHECKLIST ── */}
+                            <div>
+                                <div className="flex items-center gap-2 mb-4">
+                                    <div className="w-7 h-7 rounded-full border-2 border-amber-200 bg-amber-50 flex items-center justify-center">
+                                        <Plus size={13} className="text-amber-500" />
+                                    </div>
+                                    <span className="text-[11px] font-black text-slate-500 uppercase tracking-widest">Steps & Checklist</span>
+                                </div>
+
+                                {/* Existing items */}
+                                {items.length > 0 && (
+                                    <div className="space-y-2 mb-3">
+                                        {items.map((item, idx) => (
+                                            <motion.div key={idx} layout initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }}
+                                                className="flex items-center gap-3 bg-slate-50 border border-slate-200 px-3 py-2.5 rounded-2xl">
+                                                <div className="w-6 h-6 bg-white border border-slate-200 rounded-full flex items-center justify-center text-[10px] font-black text-slate-500 flex-shrink-0">{idx + 1}</div>
+                                                <div className="flex-1 min-w-0">
+                                                    <p className="font-black text-sm text-slate-900 truncate">{item.title}</p>
+                                                    {item.description && <p className="text-[10px] text-slate-400 font-medium truncate">{item.description}</p>}
+                                                    {(item.start_time || item.end_time) && (
+                                                        <p className="text-[9px] font-black text-primary/70 mt-0.5">
+                                                            {item.start_time ? fmt12(item.start_time) : '—'} – {item.end_time ? fmt12(item.end_time) : '—'}
+                                                        </p>
+                                                    )}
+                                                </div>
+                                                <div className="flex items-center gap-1 flex-shrink-0">
+                                                    <button type="button" onClick={() => { setNewItem(item); setEditingIndex(idx); setShowStepTimeSlot(!!(item.start_time || item.end_time)); }} className="p-1.5 text-slate-400 hover:text-primary hover:bg-primary/5 rounded-lg transition-all"><Edit3 size={13} /></button>
+                                                    <button type="button" onClick={() => handleRemoveItem(idx)} className="p-1.5 text-slate-400 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition-all"><Trash2 size={13} /></button>
+                                                </div>
+                                            </motion.div>
+                                        ))}
+                                    </div>
+                                )}
+
+                                {/* Add step form */}
+                                <div className="bg-slate-50 border border-dashed border-slate-300 rounded-2xl p-4 space-y-3">
+                                    <input
+                                        type="text"
+                                        placeholder="Step Title"
+                                        value={newItem.title}
+                                        onChange={(e) => setNewItem({ ...newItem, title: e.target.value })}
+                                        className={inputCls}
+                                    />
+                                    <textarea
+                                        placeholder="Step Description / Instructions..."
+                                        value={newItem.description}
+                                        onChange={(e) => setNewItem({ ...newItem, description: e.target.value })}
+                                        rows={2}
+                                        className={`${inputCls} resize-none`}
+                                    />
+                                    <div>
+                                        <label className={labelCls}>Response Type</label>
+                                        <select value={newItem.type} onChange={(e) => setNewItem({ ...newItem, type: e.target.value as any })} className={`${inputCls} appearance-none`}>
+                                            <option value="checkbox">Checkbox</option>
+                                            <option value="text">Text Input</option>
+                                            <option value="number">Number Input</option>
+                                            <option value="yes_no">Yes / No Toggle</option>
+                                        </select>
+                                    </div>
+
+                                    {/* Step-level time slot */}
+                                    {!showStepTimeSlot ? (
+                                        <button type="button"
+                                            onClick={() => { setShowStepTimeSlot(true); setNewItem({ ...newItem, start_time: '09:00', end_time: '17:00' }); }}
+                                            className="text-[9px] font-black text-primary uppercase tracking-widest hover:underline px-1">
+                                            + Set Step Time Slot
+                                        </button>
+                                    ) : (
+                                        <div className="bg-white border border-slate-200 rounded-2xl p-3 space-y-2">
+                                            <div className="flex items-center justify-between">
+                                                <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest">Step Time Slot</p>
+                                                <button type="button"
+                                                    onClick={() => { setShowStepTimeSlot(false); setNewItem({ ...newItem, start_time: '', end_time: '' }); }}
+                                                    className="text-[9px] font-black text-slate-400 hover:text-rose-500 uppercase tracking-widest">
+                                                    × Remove
+                                                </button>
+                                            </div>
+                                            <div className="grid grid-cols-2 gap-2">
+                                                <div>
+                                                    <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1 px-1">From</p>
+                                                    <TimeSelect value={newItem.start_time || '09:00'} onChange={(v) => setNewItem({ ...newItem, start_time: v })} />
+                                                </div>
+                                                <div>
+                                                    <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1 px-1">To</p>
+                                                    <TimeSelect value={newItem.end_time || '17:00'} onChange={(v) => setNewItem({ ...newItem, end_time: v })} />
+                                                </div>
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    <button type="button" onClick={handleAddItem}
+                                        className="w-full flex items-center justify-center gap-2 py-3 bg-primary text-white rounded-2xl font-black uppercase tracking-widest text-[10px] hover:opacity-90 transition-all">
+                                        {editingIndex !== null ? <><Check size={14} /> Update Step</> : <><Plus size={14} /> Add Step</>}
+                                    </button>
+                                    {editingIndex !== null && (
+                                        <button type="button" onClick={() => { setEditingIndex(null); setShowStepTimeSlot(false); setNewItem({ title: '', description: '', requires_photo: true, requires_comment: false, type: 'checkbox', is_optional: false, start_time: '', end_time: '' }); }}
+                                            className="w-full text-[10px] font-black text-slate-400 py-1.5 hover:text-slate-600 uppercase tracking-widest transition-all">
+                                            Cancel Editing
+                                        </button>
+                                    )}
+                                </div>
+                            </div>
+
+                            {/* bottom spacing */}
+                            <div className="h-2" />
                         </div>
 
                         {/* Footer */}
-                        <div className="p-3 md:p-5 border-t border-slate-100 bg-slate-50 flex justify-end gap-2 md:gap-3 sticky bottom-0 z-10">
-                            <button
-                                type="button"
-                                onClick={onClose}
-                                className="px-3 md:px-5 py-2 md:py-2.5 text-slate-500 font-black uppercase tracking-widest text-[9px] md:text-[10px] hover:text-slate-800 transition-all"
-                            >
+                        <div className="flex items-center justify-between px-5 py-4 border-t border-slate-100 bg-white flex-shrink-0">
+                            <button type="button" onClick={onClose}
+                                className="text-slate-500 font-black uppercase tracking-widest text-[10px] hover:text-slate-800 transition-all px-2 py-2">
                                 Cancel
                             </button>
-                            <button
-                                onClick={handleSubmit}
-                                disabled={isLoading}
-                                className="px-5 md:px-8 py-2 md:py-2.5 bg-slate-900 text-white rounded-lg md:rounded-xl font-black uppercase tracking-widest text-[9px] md:text-[10px] hover:bg-slate-800 transition-all shadow-xl shadow-slate-200 disabled:opacity-50"
-                            >
+                            <button onClick={handleSubmit} disabled={isLoading}
+                                className="flex-1 ml-4 py-3 bg-slate-900 text-white rounded-2xl font-black uppercase tracking-widest text-[10px] hover:bg-slate-800 transition-all shadow-lg disabled:opacity-50">
                                 {isLoading ? 'Saving...' : template ? 'Save Changes' : 'Create Template'}
                             </button>
                         </div>
                     </motion.div>
 
                     {toast && (
-                        <Toast
-                            message={toast.message}
-                            type={toast.type}
-                            visible={true}
-                            onClose={() => setToast(null)}
-                            duration={3000}
-                        />
+                        <Toast message={toast.message} type={toast.type} visible={true} onClose={() => setToast(null)} duration={3000} />
                     )}
                 </div>
             )}

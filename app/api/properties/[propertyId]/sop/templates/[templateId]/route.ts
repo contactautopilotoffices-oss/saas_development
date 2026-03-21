@@ -47,7 +47,7 @@ export async function PUT(
         }
 
         const body = await request.json();
-        const { title, description, category, frequency, assigned_to, is_active, items } = body;
+        const { title, description, category, frequency, assigned_to, is_active, items, start_time, end_time } = body;
 
 
 
@@ -58,11 +58,10 @@ export async function PUT(
                 ...(description !== undefined && { description }),
                 ...(category && { category }),
                 ...(frequency && { frequency }),
-                ...(assigned_to && { assigned_to }),
-
+                ...(assigned_to !== undefined && { assigned_to }),
                 ...(is_active !== undefined && { is_active }),
-
-
+                start_time: start_time || null,
+                end_time: end_time || null,
                 updated_at: new Date().toISOString(),
             })
             .eq('id', templateId)
@@ -98,6 +97,8 @@ export async function PUT(
                     requires_photo: item.requires_photo || false,
                     requires_comment: item.requires_comment || false,
                     is_mandatory: item.is_mandatory !== false,
+                    start_time: item.start_time || null,
+                    end_time: item.end_time || null,
                 }));
 
                 const { error: itemsError } = await supabaseAdmin
@@ -121,6 +122,50 @@ export async function PUT(
             .single();
 
         return NextResponse.json({ success: true, template: finalTemplate });
+    } catch (err) {
+        return NextResponse.json(
+            { error: err instanceof Error ? err.message : 'Unknown error' },
+            { status: 500 }
+        );
+    }
+}
+
+export async function PATCH(
+    request: NextRequest,
+    { params }: { params: Promise<{ propertyId: string; templateId: string }> }
+) {
+    const { propertyId, templateId } = await params;
+    const supabase = await createClient();
+
+    try {
+        const { data: { user }, error: authError } = await supabase.auth.getUser();
+        if (authError || !user) {
+            return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+        }
+
+        const body = await request.json();
+        const { is_running } = body;
+
+        if (typeof is_running !== 'boolean') {
+            return NextResponse.json({ error: 'is_running must be a boolean' }, { status: 400 });
+        }
+
+        const patchFields: any = { is_running, updated_at: new Date().toISOString() };
+        if (is_running) patchFields.started_at = new Date().toISOString(); // track when schedule went live
+
+        const { data: template, error: updateError } = await supabase
+            .from('sop_templates')
+            .update(patchFields)
+            .eq('id', templateId)
+            .eq('property_id', propertyId)
+            .select()
+            .single();
+
+        if (updateError) {
+            return NextResponse.json({ error: updateError.message }, { status: 500 });
+        }
+
+        return NextResponse.json({ success: true, template });
     } catch (err) {
         return NextResponse.json(
             { error: err instanceof Error ? err.message : 'Unknown error' },

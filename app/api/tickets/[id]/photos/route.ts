@@ -123,9 +123,7 @@ export async function POST(
             user_id: user.id,
             action: `photo_${photoType}_uploaded`,
             new_value: publicUrl,
-            old_value: takenAt || new Date().toISOString(), // Using old_value as a temporary store for capture time to avoid schema change, or we can use metadata if it exists. 
-            // Wait, looking at SOP, they just update the column. But here we don't have a column.
-            // Let's see if there's a better way. Maybe 'metadata' jsonb?
+            old_value: takenAt || new Date().toISOString(),
         });
 
         return NextResponse.json({ success: true, url: publicUrl, type: photoType });

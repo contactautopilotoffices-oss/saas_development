@@ -5,7 +5,7 @@ import {
     LayoutDashboard, Building2, Users, UserPlus, Ticket, Settings, UserCircle,
     Search, Plus, Filter, LogOut, ChevronRight, MapPin, Edit, Trash2, X, Check, UsersRound,
     Coffee, IndianRupee, FileDown, ChevronDown, Fuel, Menu, Upload, FileBarChart, Zap, Package, ClipboardCheck, Scan, Key,
-    AlertCircle, CheckCircle2, Clock
+    AlertCircle, CheckCircle2, Clock, GitBranch, DoorOpen
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { createClient } from '@/frontend/utils/supabase/client';
@@ -28,9 +28,11 @@ import StockReportView from '@/frontend/components/stock/StockReportView';
 import StockMovementModal from '@/frontend/components/stock/StockMovementModal';
 import SOPDashboard from '@/frontend/components/sop/SOPDashboard';
 import PropertyFeaturesModal from './PropertyFeaturesModal';
+import EscalationHierarchyBuilder from '@/frontend/components/escalation/EscalationHierarchyBuilder';
+import AdminRoomManager from '@/frontend/components/meeting-rooms/AdminRoomManager';
 
 // Types
-type Tab = 'overview' | 'properties' | 'requests' | 'reports' | 'visitors' | 'settings' | 'profile' | 'revenue' | 'users' | 'diesel' | 'electricity' | 'stock_reports' | 'sop' | 'super_tenants';
+type Tab = 'overview' | 'properties' | 'requests' | 'reports' | 'visitors' | 'settings' | 'profile' | 'revenue' | 'users' | 'diesel' | 'electricity' | 'stock_reports' | 'checklist' | 'super_tenants' | 'escalation' | 'rooms';
 
 interface Property {
     id: string;
@@ -86,7 +88,10 @@ const OrgAdminDashboard = () => {
     const [showTicketCreateModal, setShowTicketCreateModal] = useState(false);
     const [selectedPropertyId, setSelectedPropertyId] = useState('all');
     const [isScannerModalOpen, setIsScannerModalOpen] = useState(false);
-    const [isPropSelectorOpen, setIsPropSelectorOpen] = useState(false);
+    const [openDropdown, setOpenDropdown] = useState<'prop' | 'checklist' | 'escalation' | 'rooms' | null>(null);
+    const [checklistPropertyId, setChecklistPropertyId] = useState<string>('all');
+    const [escalationPropertyId, setEscalationPropertyId] = useState<string>('all');
+    const [roomsPropertyId, setRoomsPropertyId] = useState<string>('all');
     const [userRole, setUserRole] = useState<string>('User');
     const [sidebarOpen, setSidebarOpen] = useState(false);
     const [pendingStatusFilter, setPendingStatusFilter] = useState('all');
@@ -215,10 +220,11 @@ const OrgAdminDashboard = () => {
     // Restore tab from URL
     useEffect(() => {
         const tab = searchParams.get('tab');
-        if (tab && ['overview', 'properties', 'requests', 'reports', 'visitors', 'settings', 'profile', 'revenue', 'users', 'diesel', 'electricity', 'stock_reports', 'sop', 'super_tenants'].includes(tab)) {
+        if (tab && ['overview', 'properties', 'requests', 'reports', 'visitors', 'settings', 'profile', 'revenue', 'users', 'diesel', 'electricity', 'stock_reports', 'checklist', 'super_tenants', 'escalation', 'rooms'].includes(tab)) {
             setActiveTab(tab as Tab);
         }
     }, [searchParams]);
+
 
     // Fetch properties ONCE when org is loaded (not on every tab change)
     useEffect(() => {
@@ -662,14 +668,34 @@ const OrgAdminDashboard = () => {
                                 Stock Reports
                             </button>
                             <button
-                                onClick={() => handleTabChange('sop')}
-                                className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 font-bold text-sm ${activeTab === 'sop'
+                                onClick={() => handleTabChange('checklist')}
+                                className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 font-bold text-sm ${activeTab === 'checklist'
                                     ? 'bg-primary text-text-inverse shadow-sm'
                                     : 'text-text-secondary hover:bg-muted hover:text-text-primary'
                                     }`}
                             >
                                 <ClipboardCheck className="w-4 h-4" />
                                 Checklists
+                            </button>
+                            <button
+                                onClick={() => handleTabChange('escalation')}
+                                className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 font-bold text-sm ${activeTab === 'escalation'
+                                    ? 'bg-primary text-text-inverse shadow-sm'
+                                    : 'text-text-secondary hover:bg-muted hover:text-text-primary'
+                                    }`}
+                            >
+                                <GitBranch className="w-4 h-4" />
+                                Escalation
+                            </button>
+                            <button
+                                onClick={() => handleTabChange('rooms')}
+                                className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 font-bold text-sm ${activeTab === 'rooms'
+                                    ? 'bg-primary text-text-inverse shadow-sm'
+                                    : 'text-text-secondary hover:bg-muted hover:text-text-primary'
+                                    }`}
+                            >
+                                <DoorOpen className="w-4 h-4" />
+                                Meeting Rooms
                             </button>
                         </div>
                     </div>
@@ -738,10 +764,10 @@ const OrgAdminDashboard = () => {
             />
 
             {/* Main Content */}
-            <main className={`flex-1 lg:ml-72 bg-white transition-all duration-300 ${activeTab === 'overview' || activeTab === 'sop' ? '' : 'pt-16 lg:pt-0 p-4 md:p-8 lg:p-12'}`}>
+            <main className={`flex-1 lg:ml-72 bg-white transition-all duration-300 ${activeTab === 'overview' || activeTab === 'checklist' || activeTab === 'escalation' || activeTab === 'rooms' ? '' : activeTab === 'requests' ? 'pt-16 lg:pt-0 lg:p-12' : 'pt-16 lg:pt-0 p-4 md:p-8 lg:p-12'}`}>
 
-                {/* Only show header for non-overview tabs */}
-                {activeTab !== 'overview' && (
+                {/* Only show header for non-overview, non-sop, non-escalation tabs */}
+                {activeTab !== 'overview' && activeTab !== 'checklist' && activeTab !== 'escalation' && activeTab !== 'rooms' && (
                     <header className="fixed top-0 left-0 right-0 lg:static h-16 bg-white border-b border-border/10 flex justify-between items-center px-4 md:px-8 lg:px-0 mb-10 z-30">
                         <div className="flex items-center gap-4">
                             {/* Mobile Menu Toggle */}
@@ -760,9 +786,9 @@ const OrgAdminDashboard = () => {
 
                             {/* Property Selector for Requests/Other tabs */}
                             {properties.length > 0 && (
-                                <div className="relative">
+                                <div className="hidden lg:block relative">
                                     <button
-                                        onClick={() => setIsPropSelectorOpen(!isPropSelectorOpen)}
+                                        onClick={() => setOpenDropdown(openDropdown === 'prop' ? null : 'prop')}
                                         className="flex items-center gap-3 bg-surface-elevated border border-border rounded-xl px-4 py-2.5 hover:border-primary transition-all group min-w-[200px]"
                                     >
                                         <div className="w-6 h-6 rounded-lg bg-background flex items-center justify-center overflow-hidden">
@@ -775,15 +801,15 @@ const OrgAdminDashboard = () => {
                                         <span className="text-sm font-body font-medium text-text-primary flex-1 text-left">
                                             {selectedPropertyId === 'all' ? 'All Properties' : activeProperty?.name}
                                         </span>
-                                        <ChevronDown className={`w-4 h-4 text-text-tertiary transition-transform ${isPropSelectorOpen ? 'rotate-180' : ''}`} />
+                                        <ChevronDown className={`w-4 h-4 text-text-tertiary transition-transform ${openDropdown === 'prop' ? 'rotate-180' : ''}`} />
                                     </button>
 
                                     <AnimatePresence>
-                                        {isPropSelectorOpen && (
+                                        {openDropdown === 'prop' && (
                                             <>
                                                 <div
                                                     className="fixed inset-0 z-[60]"
-                                                    onClick={() => setIsPropSelectorOpen(false)}
+                                                    onClick={() => setOpenDropdown(null)}
                                                 />
                                                 <motion.div
                                                     initial={{ opacity: 0, y: 10, scale: 0.95 }}
@@ -793,7 +819,7 @@ const OrgAdminDashboard = () => {
                                                 >
                                                     <div className="p-2 border-b border-border">
                                                         <button
-                                                            onClick={() => { handlePropertyChange('all'); setIsPropSelectorOpen(false); }}
+                                                            onClick={() => { handlePropertyChange('all'); setOpenDropdown(null); }}
                                                             className={`w-full flex items-center gap-3 p-2 rounded-xl transition-colors ${selectedPropertyId === 'all' ? 'bg-primary text-text-inverse' : 'text-text-secondary hover:bg-background'}`}
                                                         >
                                                             <div className="w-8 h-8 rounded-lg bg-background flex items-center justify-center">
@@ -809,7 +835,7 @@ const OrgAdminDashboard = () => {
                                                         {properties.map(prop => (
                                                             <button
                                                                 key={prop.id}
-                                                                onClick={() => { handlePropertyChange(prop.id); setIsPropSelectorOpen(false); }}
+                                                                onClick={() => { handlePropertyChange(prop.id); setOpenDropdown(null); }}
                                                                 className={`w-full flex items-center gap-3 p-2 rounded-xl transition-colors ${selectedPropertyId === prop.id ? 'bg-primary text-text-inverse' : 'text-text-secondary hover:bg-background'}`}
                                                             >
                                                                 <div className="w-8 h-8 rounded-lg bg-background flex items-center justify-center overflow-hidden">
@@ -847,7 +873,7 @@ const OrgAdminDashboard = () => {
                                         }
                                         window.history.pushState({}, '', url.toString());
                                     }}
-                                    className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all shadow-sm border-2 ${showRequestsList
+                                    className={`hidden lg:flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all shadow-sm border-2 ${showRequestsList
                                         ? 'bg-primary text-white border-primary'
                                         : 'bg-surface-elevated text-primary border-primary/20 hover:bg-primary/5'
                                         }`}
@@ -856,7 +882,7 @@ const OrgAdminDashboard = () => {
                                     <span className="hidden sm:inline">{showRequestsList ? 'Board View' : 'View Requests'}</span>
                                 </button>
                             )}
-                            <div className="hidden md:flex flex-col items-end">
+                            <div className="flex flex-col items-end">
                                 <span className="text-sm font-display font-semibold text-text-primary tracking-tight">System Status</span>
                                 <span className="text-[10px] text-primary font-bold uppercase tracking-widest">Online</span>
                             </div>
@@ -913,6 +939,8 @@ const OrgAdminDashboard = () => {
                                             avatar_url: ''
                                         }}
                                         initialStatusFilter={pendingStatusFilter}
+                                        properties={properties}
+                                        onPropertyChange={handlePropertyChange}
                                     />
                                 )}
                             </div>
@@ -964,18 +992,201 @@ const OrgAdminDashboard = () => {
                             )
                         )}
 
-                        {activeTab === 'sop' && (
-                            selectedPropertyId !== 'all' ? (
-                                <SOPDashboard propertyId={selectedPropertyId} />
-                            ) : (
-                                <div className="flex flex-col items-center justify-center py-20 text-center">
-                                    <div className="w-16 h-16 bg-primary/10 rounded-2xl flex items-center justify-center mb-4">
-                                        <ClipboardCheck className="w-8 h-8 text-primary" />
+                        {activeTab === 'checklist' && (
+                            <div className="w-full min-h-screen bg-slate-50/50">
+                                {checklistPropertyId !== 'all' ? (
+                                    <SOPDashboard
+                                        propertyId={checklistPropertyId}
+                                        propertySelector={
+                                            <div className="flex items-center gap-2">
+                                                <button
+                                                    onClick={() => setSidebarOpen(true)}
+                                                    className="w-9 h-9 flex items-center justify-center rounded-xl lg:hidden text-slate-500 hover:text-slate-900 hover:bg-slate-100 transition-colors"
+                                                >
+                                                    <Menu size={18} />
+                                                </button>
+                                                <PropertySelectorPill
+                                                    properties={properties}
+                                                    selectedId={checklistPropertyId}
+                                                    isOpen={openDropdown === 'checklist'}
+                                                    onToggle={() => setOpenDropdown(openDropdown === 'checklist' ? null : 'checklist')}
+                                                    onSelect={(id) => { setChecklistPropertyId(id); setOpenDropdown(null); }}
+                                                    onClose={() => setOpenDropdown(null)}
+                                                />
+                                            </div>
+                                        }
+                                        headerRight={<NotificationBell />}
+                                    />
+                                ) : (
+                                    <SOPDashboard
+                                        propertyIds={properties.map(p => p.id)}
+                                        propertySelector={
+                                            <div className="flex items-center gap-2">
+                                                <button
+                                                    onClick={() => setSidebarOpen(true)}
+                                                    className="w-9 h-9 flex items-center justify-center rounded-xl lg:hidden text-slate-500 hover:text-slate-900 hover:bg-slate-100 transition-colors"
+                                                >
+                                                    <Menu size={18} />
+                                                </button>
+                                                <PropertySelectorPill
+                                                    properties={properties}
+                                                    selectedId={checklistPropertyId}
+                                                    isOpen={openDropdown === 'checklist'}
+                                                    onToggle={() => setOpenDropdown(openDropdown === 'checklist' ? null : 'checklist')}
+                                                    onSelect={(id) => { setChecklistPropertyId(id); setOpenDropdown(null); }}
+                                                    onClose={() => setOpenDropdown(null)}
+                                                />
+                                            </div>
+                                        }
+                                        headerRight={<NotificationBell />}
+                                    />
+                                )}
+                            </div>
+                        )}
+
+
+
+                        {/* Escalation tab content */}
+                        {activeTab === 'escalation' && org && (
+                            <div className="p-4 md:p-8 lg:p-12">
+                                <EscalationHierarchyBuilder
+                                    organizationId={org.id}
+                                    propertyId={escalationPropertyId !== 'all' ? escalationPropertyId : undefined}
+                                    propertySelector={
+                                        <div className="relative">
+                                            <button
+                                                onClick={() => setOpenDropdown(openDropdown === 'escalation' ? null : 'escalation')}
+                                                className="flex items-center gap-3 bg-surface-elevated border border-border rounded-xl px-4 py-2.5 hover:border-primary transition-all group min-w-[200px]"
+                                            >
+                                                <div className="w-6 h-6 rounded-lg bg-background flex items-center justify-center overflow-hidden">
+                                                    {(() => { const ep = properties.find(p => p.id === escalationPropertyId); return ep?.image_url ? <img src={ep.image_url} alt="" className="w-full h-full object-cover" /> : <Building2 className="w-3.5 h-3.5 text-text-tertiary" />; })()}
+                                                </div>
+                                                <span className="text-sm font-body font-medium text-text-primary flex-1 text-left">
+                                                    {escalationPropertyId === 'all' ? 'All Properties' : properties.find(p => p.id === escalationPropertyId)?.name}
+                                                </span>
+                                                <ChevronDown className={`w-4 h-4 text-text-tertiary transition-transform ${openDropdown === 'escalation' ? 'rotate-180' : ''}`} />
+                                            </button>
+                                            <AnimatePresence>
+                                                {openDropdown === 'escalation' && (
+                                                    <>
+                                                        <div className="fixed inset-0 z-[60]" onClick={() => setOpenDropdown(null)} />
+                                                        <motion.div
+                                                            initial={{ opacity: 0, y: 10, scale: 0.95 }}
+                                                            animate={{ opacity: 1, y: 0, scale: 1 }}
+                                                            exit={{ opacity: 0, y: 10, scale: 0.95 }}
+                                                            className="absolute right-0 mt-2 w-72 bg-surface-elevated rounded-2xl shadow-2xl border border-border z-[70] overflow-hidden"
+                                                        >
+                                                            <div className="p-2 border-b border-border">
+                                                                <button
+                                                                    onClick={() => { setEscalationPropertyId('all'); setOpenDropdown(null); }}
+                                                                    className={`w-full flex items-center gap-3 p-2 rounded-xl transition-colors ${escalationPropertyId === 'all' ? 'bg-primary text-text-inverse' : 'text-text-secondary hover:bg-background'}`}
+                                                                >
+                                                                    <div className="w-8 h-8 rounded-lg bg-background flex items-center justify-center">
+                                                                        <LayoutDashboard className="w-4 h-4" />
+                                                                    </div>
+                                                                    <div className="text-left">
+                                                                        <p className="text-xs font-black uppercase tracking-tight">All Properties</p>
+                                                                        <p className="text-[10px] text-text-tertiary font-body font-medium">{properties.length} Locations</p>
+                                                                    </div>
+                                                                </button>
+                                                            </div>
+                                                            <div className="max-h-64 overflow-y-auto p-2 space-y-1">
+                                                                {properties.map(prop => (
+                                                                    <button
+                                                                        key={prop.id}
+                                                                        onClick={() => { setEscalationPropertyId(prop.id); setOpenDropdown(null); }}
+                                                                        className={`w-full flex items-center gap-3 p-2 rounded-xl transition-colors ${escalationPropertyId === prop.id ? 'bg-primary text-text-inverse' : 'text-text-secondary hover:bg-background'}`}
+                                                                    >
+                                                                        <div className="w-8 h-8 rounded-lg bg-background flex items-center justify-center overflow-hidden">
+                                                                            {prop.image_url ? <img src={prop.image_url} alt="" className="w-full h-full object-cover" /> : <Building2 className="w-4 h-4 text-slate-400" />}
+                                                                        </div>
+                                                                        <div className="text-left overflow-hidden">
+                                                                            <p className="text-xs font-black uppercase tracking-tight truncate">{prop.name}</p>
+                                                                            <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">{prop.code}</p>
+                                                                        </div>
+                                                                    </button>
+                                                                ))}
+                                                            </div>
+                                                        </motion.div>
+                                                    </>
+                                                )}
+                                            </AnimatePresence>
+                                        </div>
+                                    }
+                                />
+                            </div>
+                        )}
+
+                        {activeTab === 'rooms' && (
+                            <div className="p-4 md:p-8 lg:p-12 space-y-6">
+                                <div className="flex items-center justify-between">
+                                    <div>
+                                        <h2 className="text-xl font-black text-slate-900 tracking-tight">Meeting Rooms</h2>
+                                        <p className="text-sm text-slate-500 font-medium mt-0.5">Manage meeting rooms and bookings across your properties</p>
                                     </div>
-                                    <h3 className="text-lg font-black text-slate-900 mb-2">Select a Property</h3>
-                                    <p className="text-sm text-slate-500 max-w-md">Please select a specific property from the property selector above to view and manage checklists.</p>
+                                    {properties.length > 0 && (
+                                        <div className="relative">
+                                            <button
+                                                onClick={() => setOpenDropdown(openDropdown === 'rooms' ? null : 'rooms')}
+                                                className="flex items-center gap-3 bg-surface-elevated border border-border rounded-xl px-4 py-2.5 hover:border-primary transition-all group min-w-[200px]"
+                                            >
+                                                <div className="w-6 h-6 rounded-lg bg-background flex items-center justify-center overflow-hidden">
+                                                    {roomsPropertyId === 'all'
+                                                        ? <LayoutDashboard className="w-3.5 h-3.5 text-text-tertiary" />
+                                                        : (() => { const rp = properties.find(p => p.id === roomsPropertyId); return rp?.image_url ? <img src={rp.image_url} alt="" className="w-full h-full object-cover" /> : <Building2 className="w-3.5 h-3.5 text-text-tertiary" />; })()
+                                                    }
+                                                </div>
+                                                <span className="text-sm font-body font-medium text-text-primary flex-1 text-left">
+                                                    {roomsPropertyId === 'all' ? 'Select Property' : properties.find(p => p.id === roomsPropertyId)?.name}
+                                                </span>
+                                                <ChevronDown className={`w-4 h-4 text-text-tertiary transition-transform ${openDropdown === 'rooms' ? 'rotate-180' : ''}`} />
+                                            </button>
+                                            <AnimatePresence>
+                                                {openDropdown === 'rooms' && (
+                                                    <>
+                                                        <div className="fixed inset-0 z-[60]" onClick={() => setOpenDropdown(null)} />
+                                                        <motion.div
+                                                            initial={{ opacity: 0, y: 10, scale: 0.95 }}
+                                                            animate={{ opacity: 1, y: 0, scale: 1 }}
+                                                            exit={{ opacity: 0, y: 10, scale: 0.95 }}
+                                                            className="absolute right-0 mt-2 w-72 bg-surface-elevated rounded-2xl shadow-2xl border border-border z-[70] overflow-hidden"
+                                                        >
+                                                            <div className="max-h-64 overflow-y-auto p-2 space-y-1">
+                                                                {properties.map(prop => (
+                                                                    <button
+                                                                        key={prop.id}
+                                                                        onClick={() => { setRoomsPropertyId(prop.id); setOpenDropdown(null); }}
+                                                                        className={`w-full flex items-center gap-3 p-2 rounded-xl transition-colors ${roomsPropertyId === prop.id ? 'bg-primary text-text-inverse' : 'text-text-secondary hover:bg-background'}`}
+                                                                    >
+                                                                        <div className="w-8 h-8 rounded-lg bg-background flex items-center justify-center overflow-hidden">
+                                                                            {prop.image_url ? <img src={prop.image_url} alt="" className="w-full h-full object-cover" /> : <Building2 className="w-4 h-4 text-slate-400" />}
+                                                                        </div>
+                                                                        <div className="text-left overflow-hidden">
+                                                                            <p className="text-xs font-black uppercase tracking-tight truncate">{prop.name}</p>
+                                                                            <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">{prop.code}</p>
+                                                                        </div>
+                                                                    </button>
+                                                                ))}
+                                                            </div>
+                                                        </motion.div>
+                                                    </>
+                                                )}
+                                            </AnimatePresence>
+                                        </div>
+                                    )}
                                 </div>
-                            )
+                                {roomsPropertyId !== 'all' ? (
+                                    <AdminRoomManager propertyId={roomsPropertyId} user={user!} />
+                                ) : (
+                                    <div className="flex flex-col items-center justify-center py-20 text-center">
+                                        <div className="w-16 h-16 bg-primary/10 rounded-2xl flex items-center justify-center mb-4">
+                                            <DoorOpen className="w-8 h-8 text-primary" />
+                                        </div>
+                                        <h3 className="text-lg font-black text-slate-900 mb-2">Select a Property</h3>
+                                        <p className="text-sm text-slate-500 max-w-md">Select a property from the dropdown above to manage its meeting rooms and bookings.</p>
+                                    </div>
+                                )}
+                            </div>
                         )}
 
                         {activeTab === 'super_tenants' && org && (
@@ -1145,6 +1356,7 @@ const OrgAdminDashboard = () => {
                     }}
                 />
             )}
+
         </div>
     );
 };
@@ -3193,5 +3405,87 @@ const SuperTenantOrgTab = ({ orgId, properties }: { orgId: string; properties: S
         </div>
     );
 };
+
+// ── Property Selector Pill (used inside SOPDashboard header slot) ──
+function PropertySelectorPill({ properties, selectedId, isOpen, onToggle, onSelect, onClose }: {
+    properties: { id: string; name: string; code: string; image_url?: string }[];
+    selectedId: string;
+    isOpen: boolean;
+    onToggle: () => void;
+    onSelect: (id: string) => void;
+    onClose: () => void;
+}) {
+    const selected = properties.find(p => p.id === selectedId);
+    return (
+        <div className="relative">
+            <button
+                onClick={onToggle}
+                className="flex items-center gap-1.5 px-2.5 py-1.5 bg-slate-100 border border-slate-200 rounded-xl hover:bg-slate-200 transition-all"
+            >
+                <div className="w-4 h-4 rounded flex items-center justify-center overflow-hidden flex-shrink-0">
+                    {selectedId === 'all'
+                        ? <LayoutDashboard className="w-3.5 h-3.5 text-slate-500" />
+                        : selected?.image_url
+                            ? <img src={selected.image_url} alt="" className="w-full h-full object-cover rounded" />
+                            : <Building2 className="w-3.5 h-3.5 text-slate-500" />
+                    }
+                </div>
+                <span className="text-[11px] font-black text-slate-700 max-w-[90px] truncate">
+                    {selectedId === 'all' ? 'All Properties' : selected?.name}
+                </span>
+                <ChevronDown className={`w-3.5 h-3.5 text-slate-400 transition-transform flex-shrink-0 ${isOpen ? 'rotate-180' : ''}`} />
+            </button>
+            <AnimatePresence>
+                {isOpen && (
+                    <>
+                        <div className="fixed inset-0 z-[60]" onClick={onClose} />
+                        <motion.div
+                            initial={{ opacity: 0, y: 8, scale: 0.95 }}
+                            animate={{ opacity: 1, y: 0, scale: 1 }}
+                            exit={{ opacity: 0, y: 8, scale: 0.95 }}
+                            transition={{ duration: 0.15 }}
+                            className="absolute right-0 mt-2 w-64 bg-white rounded-2xl shadow-2xl border border-slate-200 z-[70] overflow-hidden"
+                        >
+                            <div className="p-2 border-b border-slate-100">
+                                <button
+                                    onClick={() => onSelect('all')}
+                                    className={`w-full flex items-center gap-3 p-2 rounded-xl transition-colors ${selectedId === 'all' ? 'bg-primary text-white' : 'text-slate-600 hover:bg-slate-50'}`}
+                                >
+                                    <div className="w-8 h-8 rounded-lg bg-slate-100 flex items-center justify-center flex-shrink-0">
+                                        <LayoutDashboard className="w-4 h-4 text-slate-500" />
+                                    </div>
+                                    <div className="text-left">
+                                        <p className="text-xs font-black uppercase tracking-tight">All Properties</p>
+                                        <p className="text-[10px] opacity-70 font-medium">{properties.length} Locations</p>
+                                    </div>
+                                </button>
+                            </div>
+                            <div className="max-h-60 overflow-y-auto p-2 space-y-1">
+                                {properties.map(prop => (
+                                    <button
+                                        key={prop.id}
+                                        onClick={() => onSelect(prop.id)}
+                                        className={`w-full flex items-center gap-3 p-2 rounded-xl transition-colors ${selectedId === prop.id ? 'bg-primary text-white' : 'text-slate-600 hover:bg-slate-50'}`}
+                                    >
+                                        <div className="w-8 h-8 rounded-lg bg-slate-100 flex items-center justify-center overflow-hidden flex-shrink-0">
+                                            {prop.image_url
+                                                ? <img src={prop.image_url} alt="" className="w-full h-full object-cover" />
+                                                : <Building2 className="w-4 h-4 text-slate-400" />
+                                            }
+                                        </div>
+                                        <div className="text-left overflow-hidden">
+                                            <p className="text-xs font-black uppercase tracking-tight truncate">{prop.name}</p>
+                                            <p className="text-[10px] opacity-70 font-bold uppercase tracking-widest">{prop.code}</p>
+                                        </div>
+                                    </button>
+                                ))}
+                            </div>
+                        </motion.div>
+                    </>
+                )}
+            </AnimatePresence>
+        </div>
+    );
+}
 
 export default OrgAdminDashboard;

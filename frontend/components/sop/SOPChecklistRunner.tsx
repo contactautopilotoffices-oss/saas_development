@@ -1,7 +1,7 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
-import { Camera, CheckCircle2, ChevronRight, Loader2, X, Paperclip, Circle, Eye, Video, Play } from 'lucide-react';
+import React, { useState, useEffect, useMemo } from 'react';
+import { Camera, CheckCircle2, ChevronRight, Loader2, X, Paperclip, Circle, Eye, Video, Play, ArrowLeft, MoreVertical, Lock } from 'lucide-react';
 
 
 import { motion, AnimatePresence } from 'framer-motion';
@@ -20,13 +20,13 @@ import VideoPreviewModal from '@/frontend/components/shared/VideoPreviewModal';
 interface SOPChecklistRunnerProps {
     templateId: string;
     completionId?: string;
-    isAdmin?: boolean;
+    isSuperAdmin?: boolean;
     propertyId: string;
     onComplete?: () => void;
     onCancel?: () => void;
 }
 
-const SOPChecklistRunner: React.FC<SOPChecklistRunnerProps> = ({ templateId, completionId, propertyId, onComplete, onCancel }) => {
+const SOPChecklistRunner: React.FC<SOPChecklistRunnerProps> = ({ templateId, completionId, isSuperAdmin = false, propertyId, onComplete, onCancel }) => {
     const [completion, setCompletion] = useState<any>(null);
     const [template, setTemplate] = useState<any>(null);
     const [isLoading, setIsLoading] = useState(true);
@@ -40,8 +40,96 @@ const SOPChecklistRunner: React.FC<SOPChecklistRunnerProps> = ({ templateId, com
     const [itemValues, setItemValues] = useState<Record<string, string | number | boolean>>({});
 
     const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
+    const [liveNow, setLiveNow] = useState(() => new Date());
     const supabase = React.useMemo(() => createClient(), []);
     const hasInitialized = React.useRef(false);
+
+    // Tick every second so expiry is detected live
+    useEffect(() => {
+        const id = setInterval(() => setLiveNow(new Date()), 1000);
+        return () => clearInterval(id);
+    }, []);
+
+    // Window closed = end_time is set and current time is past it → hard lock
+    const isWindowClosed = useMemo(() => {
+        if (!template?.end_time) return false;
+        const nowMins = liveNow.getHours() * 60 + liveNow.getMinutes();
+        const [eH, eM] = template.end_time.slice(0, 5).split(':').map(Number);
+        return nowMins > eH * 60 + eM;
+    }, [template, liveNow]);
+
+    // Slot overdue = hourly interval elapsed since session opened, but no hard end_time
+    // This is a soft overdue — user can still submit
+    const isSlotOverdue = useMemo(() => {
+        if (!template || isWindowClosed) return false;
+        const hourlyMatch = template.frequency?.match(/^every_(\d+)_hours?$/);
+        if (hourlyMatch && completion?.created_at) {
+            const intervalMs = parseInt(hourlyMatch[1]) * 3_600_000;
+            return liveNow.getTime() - new Date(completion.created_at).getTime() > intervalMs;
+        }
+        return false;
+    }, [template, completion, liveNow, isWindowClosed]);
+
+    // Keep isExpired for any code that references it
+    const isExpired = isWindowClosed || isSlotOverdue;
+
+    const [adminUnlocked, setAdminUnlocked] = useState(false);
+    // Hard lock: completed OR window has closed (end_time passed). Slot-overdue alone does NOT lock.
+    const isReadOnly = (completion?.status === 'completed' || isWindowClosed) && !adminUnlocked;
+
+    // Realtime: sync item checks + completion status changes made by other users
+    useEffect(() => {
+        if (!completion?.id) return;
+
+        const channel = supabase
+            .channel(`sop_session:${completion.id}`)
+            // Item-level changes (checkbox, value, photo)
+            .on(
+                'postgres_changes',
+                {
+                    event: 'UPDATE',
+                    schema: 'public',
+                    table: 'sop_completion_items',
+                    filter: `completion_id=eq.${completion.id}`,
+                },
+                (payload) => {
+                    const updated = payload.new as any;
+                    setCompletion((prev: any) => {
+                        if (!prev) return prev;
+                        return {
+                            ...prev,
+                            items: prev.items.map((item: any) =>
+                                item.id === updated.id ? { ...item, ...updated } : item
+                            ),
+                        };
+                    });
+                    setItemValues((prev) => ({
+                        ...prev,
+                        [updated.checklist_item_id]: updated.value !== null ? updated.value : (updated.is_checked ? true : false),
+                    }));
+                }
+            )
+            // Completion status change (e.g. another user submits → status = 'completed')
+            .on(
+                'postgres_changes',
+                {
+                    event: 'UPDATE',
+                    schema: 'public',
+                    table: 'sop_completions',
+                    filter: `id=eq.${completion.id}`,
+                },
+                (payload) => {
+                    const updated = payload.new as any;
+                    setCompletion((prev: any) => prev ? { ...prev, ...updated } : prev);
+                    if (updated.status === 'completed') {
+                        onComplete?.();
+                    }
+                }
+            )
+            .subscribe();
+
+        return () => { supabase.removeChannel(channel); };
+    }, [completion?.id, supabase]);
 
     useEffect(() => {
         const initializeChecklist = async () => {
@@ -51,120 +139,47 @@ const SOPChecklistRunner: React.FC<SOPChecklistRunnerProps> = ({ templateId, com
             try {
                 setIsLoading(true);
 
-                // Fetch template
-                const { data: templateData, error: templateError } = await supabase
+                // Fetch template (skip property_id filter if not provided — checklist deep-link page)
+                let templateQuery = supabase
                     .from('sop_templates')
-                    .select(`
-                        *,
-                        items:sop_checklist_items(*)
-                    `)
-                    .eq('id', templateId)
-                    .eq('property_id', propertyId)
-                    .single();
+                    .select(`*, items:sop_checklist_items(*)`)
+                    .eq('id', templateId);
+                if (propertyId) templateQuery = (templateQuery as any).eq('property_id', propertyId);
 
-                if (templateError || !templateData) throw templateError || new Error('Template not found');
+                const { data: templateData, error: templateError } = await templateQuery.single();
+
+                if (templateError || !templateData) {
+                    const msg = templateError?.message || 'Template not found';
+                    throw new Error(msg);
+                }
 
                 setTemplate(templateData); // Set template here
 
-                let completionData;
+                // Use resolved propertyId — fall back to template row's property_id if prop not passed
+                const resolvedPropertyId = propertyId || templateData.property_id;
+                if (!resolvedPropertyId) throw new Error('Property ID could not be resolved for this template. Check RLS on sop_templates or properties table.');
+
+                let completionData: any;
 
                 if (completionId) {
-                    // Fetch existing completion
-                    const { data, error } = await supabase
-                        .from('sop_completions')
-                        .select(`
-                            *,
-                            items:sop_completion_items(*)
-                        `)
-                        .eq('id', completionId)
-                        .single();
-
-                    if (error) throw error;
-                    completionData = data;
+                    // Fetch existing completion via API (supabaseAdmin, bypasses RLS)
+                    const res = await fetch(`/api/properties/${resolvedPropertyId}/sop/completions/${completionId}`);
+                    const json = await res.json();
+                    if (!res.ok) throw new Error(json.error || 'Failed to load completion');
+                    completionData = json.completion;
                 } else {
-                    // Start new session
-
-                    // 1. Create main completion record
-                    const { data: mainData, error: mainError } = await supabase
-                        .from('sop_completions')
-                        .insert({
-                            template_id: templateId,
-                            property_id: propertyId,
-                            organization_id: templateData.organization_id,
-                            completed_by: (await supabase.auth.getUser()).data.user?.id,
-                            completion_date: new Date().toISOString().split('T')[0],
-                            status: 'in_progress',
-                        })
-                        .select()
-                        .single();
-
-                    if (mainError) throw mainError;
-
-                    // 2. Initialize default completion items from template
-                    const initialItems = templateData.items.map((item: any) => ({
-                        completion_id: mainData.id,
-                        checklist_item_id: item.id,
-                        is_checked: false,
-                        value: null,
-                        photo_url: null,
-                        comment: null,
-                    }));
-
-                    const { error: itemsError } = await supabase
-                        .from('sop_completion_items')
-                        .insert(initialItems);
-
-                    if (itemsError) throw itemsError;
-
-                    // 3. Re-fetch full completion with items
-                    const { data: fullData, error: fetchError } = await supabase
-                        .from('sop_completions')
-                        .select(`
-                            *,
-                            items:sop_completion_items(*)
-                        `)
-                        .eq('id', mainData.id)
-                        .single();
-
-                    if (fetchError) throw fetchError;
-                    completionData = fullData;
+                    // Start new session via API (supabaseAdmin, bypasses RLS)
+                    const res = await fetch(`/api/properties/${resolvedPropertyId}/sop/completions`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ templateId }),
+                    });
+                    const json = await res.json();
+                    if (!res.ok) throw new Error(json.error || 'Failed to start checklist');
+                    completionData = json.completion;
                 }
 
                 setCompletion(completionData);
-
-                // Diagnostic: Check if items were even fetched (RLS check)
-                if (!completionData.items || completionData.items.length === 0) {
-                    console.error('[SOP Debug] CRITICAL: No items found in the completion record. This is likely an RLS permission issue.');
-                    setToast({ message: 'Permissions error: Cannot see checklist items. Check RLS policies.', type: 'error' });
-                }
-
-                // Self-healing: Check if all template items exist in completion items
-                const existingItemIds = new Set(completionData.items?.map((i: any) => String(i.checklist_item_id).toLowerCase()));
-                const missingTemplateItems = templateData.items.filter((ti: any) => !existingItemIds.has(String(ti.id).toLowerCase()));
-
-                if (missingTemplateItems.length > 0) {
-                    console.log(`[SOP Debug] Found ${missingTemplateItems.length} missing completion items. Healing...`);
-                    const newItems = missingTemplateItems.map((item: any) => ({
-                        completion_id: completionData.id,
-                        checklist_item_id: item.id,
-                        is_checked: false,
-                        value: null,
-                        photo_url: null,
-                        comment: null,
-                    }));
-
-                    const { data: insertedItems, error: healingError } = await supabase
-                        .from('sop_completion_items')
-                        .insert(newItems)
-                        .select();
-
-                    if (healingError) {
-                        console.error('[SOP Debug] Healing failed:', healingError);
-                    } else if (insertedItems) {
-                        completionData.items = [...(completionData.items || []), ...insertedItems];
-                        setCompletion({ ...completionData });
-                    }
-                }
 
                 // Initialize item values
                 const initialValues: Record<string, any> = {};
@@ -175,13 +190,9 @@ const SOPChecklistRunner: React.FC<SOPChecklistRunnerProps> = ({ templateId, com
                 setItemValues(initialValues);
 
             } catch (err: any) {
-                console.error('Initialization error details:', {
-                    message: err.message,
-                    details: err.details,
-                    hint: err.hint,
-                    code: err.code
-                });
-                setToast({ message: `Error loading checklist: ${err.message || 'Unknown error'}`, type: 'error' });
+                const msg = err?.message || err?.error_description || (typeof err === 'string' ? err : null) || JSON.stringify(err) || 'Unknown error';
+                console.error('Initialization error:', msg, err);
+                setToast({ message: `Error loading checklist: ${msg}`, type: 'error' });
                 onCancel?.();
             } finally {
                 setIsLoading(false);
@@ -193,6 +204,7 @@ const SOPChecklistRunner: React.FC<SOPChecklistRunnerProps> = ({ templateId, com
     }, [templateId, completionId, propertyId]);
 
     const handleItemToggle = async (itemId: string, value: any = null) => {
+        if (isReadOnly) return;
         if (!itemId) {
             console.error('[SOP Debug] handleItemToggle called without itemId');
             return;
@@ -232,18 +244,21 @@ const SOPChecklistRunner: React.FC<SOPChecklistRunnerProps> = ({ templateId, com
 
             console.log(`[SOP Debug] Proceeding with DB update for row: ${item.id}`);
 
-            const currentUser = (await supabase.auth.getUser()).data.user;
-            const { error: dbError } = await supabase
-                .from('sop_completion_items')
-                .update({
-                    is_checked: isChecked,
-                    value: dbValue,
-                    checked_at: new Date().toISOString(),
-                    checked_by: currentUser?.id || null
-                })
-                .eq('id', item.id);
-
-            if (dbError) throw dbError;
+            const res = await fetch(`/api/properties/${propertyId}/sop/completions/${completion.id}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    item: {
+                        completionItemId: item.id,
+                        is_checked: isChecked,
+                        value: dbValue,
+                    }
+                }),
+            });
+            if (!res.ok) {
+                const json = await res.json();
+                throw new Error(json.error || 'Failed to update item');
+            }
 
             // Play sound if item is being checked
             if (isChecked) {
@@ -349,12 +364,12 @@ const SOPChecklistRunner: React.FC<SOPChecklistRunnerProps> = ({ templateId, com
             const item = completion.items.find((i: any) => i.checklist_item_id === targetItemId);
             if (!item) throw new Error('Completion item not found');
 
-            const { error } = await supabase
-                .from('sop_completion_items')
-                .update({ photo_url: data.url, checked_at: photoTakenAt })
-                .eq('id', item.id);
-
-            if (error) throw error;
+            const photoRes = await fetch(`/api/properties/${propertyId}/sop/completions/${completion.id}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ item: { completionItemId: item.id, photo_url: data.url } }),
+            });
+            if (!photoRes.ok) throw new Error('Failed to save photo URL');
 
             setCompletion({
                 ...completion,
@@ -403,12 +418,12 @@ const SOPChecklistRunner: React.FC<SOPChecklistRunnerProps> = ({ templateId, com
             const item = completion.items.find((i: any) => i.checklist_item_id === targetItemId);
             if (!item) throw new Error('Completion item not found');
 
-            const { error } = await supabase
-                .from('sop_completion_items')
-                .update({ video_url: data.url })
-                .eq('id', item.id);
-
-            if (error) throw error;
+            const videoRes = await fetch(`/api/properties/${propertyId}/sop/completions/${completion.id}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ item: { completionItemId: item.id, photo_url: data.url } }),
+            });
+            if (!videoRes.ok) throw new Error('Failed to save video URL');
 
             setCompletion({
                 ...completion,
@@ -452,16 +467,13 @@ const SOPChecklistRunner: React.FC<SOPChecklistRunnerProps> = ({ templateId, com
                 return;
             }
 
-            // Update completion status
-            const { error } = await supabase
-                .from('sop_completions')
-                .update({
-                    status: 'completed',
-                    completed_at: new Date().toISOString(),
-                })
-                .eq('id', completion.id);
-
-            if (error) throw error;
+            // Update completion status via API (supabaseAdmin, bypasses RLS)
+            const submitRes = await fetch(`/api/properties/${propertyId}/sop/completions/${completion.id}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ status: 'completed' }),
+            });
+            if (!submitRes.ok) throw new Error('Failed to submit checklist');
 
             playTickleSound();
             setToast({ message: 'Checklist submitted successfully!', type: 'success' });
@@ -498,40 +510,37 @@ const SOPChecklistRunner: React.FC<SOPChecklistRunnerProps> = ({ templateId, com
 
 
     return (
-        <div className="space-y-3 md:space-y-4">
-            {/* Header / Guide */}
-            <div className="flex justify-between items-start gap-2">
-                <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-1.5 text-primary mb-1">
-                        <span className="text-[7px] md:text-[8px] font-black uppercase tracking-[0.2em]">{template.category || 'General'}</span>
-                        <ChevronRight size={9} className="opacity-30" />
-                        <span className="text-[7px] md:text-[8px] font-black uppercase tracking-[0.2em]">Live Session</span>
-                    </div>
-                    <h2 className="text-base md:text-xl font-black text-slate-900 tracking-tight leading-tight truncate">{template.title}</h2>
-                    <p className="text-slate-500 font-medium mt-0.5 text-[11px] md:text-xs max-w-xl line-clamp-2 md:line-clamp-none">{template.description}</p>
-                </div>
-                <button
-                    onClick={onCancel}
-                    className="w-7 h-7 md:w-8 md:h-8 bg-slate-50 border border-slate-100 rounded-lg flex items-center justify-center text-slate-400 hover:text-rose-500 hover:bg-rose-50 transition-all flex-shrink-0"
-                >
-                    <X size={14} />
+        <div className="flex flex-col min-h-screen bg-white">
+            {/* ── TOP HEADER ── */}
+            <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100 sticky top-0 bg-white z-20">
+                <button onClick={onCancel} className="w-9 h-9 flex items-center justify-center text-slate-700 hover:bg-slate-100 rounded-full transition-all">
+                    <ArrowLeft size={20} />
                 </button>
+                <h1 className="text-base font-black text-slate-900 tracking-tight truncate max-w-[55%] text-center">{template.title}</h1>
+                {isSuperAdmin && (completion?.status === 'completed' || isExpired) ? (
+                    <button
+                        onClick={() => setAdminUnlocked(v => !v)}
+                        title={adminUnlocked ? 'Re-lock checklist' : 'Admin override — unlock checklist'}
+                        className={`w-9 h-9 flex items-center justify-center rounded-full transition-all ${adminUnlocked ? 'bg-amber-100 text-amber-600 hover:bg-amber-200' : 'bg-slate-100 text-slate-400 hover:bg-slate-200'}`}
+                    >
+                        <Lock size={16} />
+                    </button>
+                ) : (
+                    <button className="w-9 h-9 flex items-center justify-center text-slate-400 hover:bg-slate-100 rounded-full transition-all">
+                        <MoreVertical size={20} />
+                    </button>
+                )}
             </div>
 
-            {/* Progress Visualization */}
-            <div className="bg-slate-50 p-2.5 md:p-3 rounded-lg md:rounded-xl border border-slate-100">
-                <div className="flex justify-between items-end mb-1.5 md:mb-2">
-                    <div>
-                        <p className="text-[7px] md:text-[8px] font-black text-slate-400 uppercase tracking-widest mb-0.5">Progress</p>
-                        <p className="text-base md:text-lg font-black text-slate-900 leading-none">{Math.round(progress)}%</p>
-                    </div>
-                    <span className="text-[8px] md:text-[9px] font-black text-primary bg-primary/10 px-2 md:px-2.5 py-0.5 md:py-1 rounded-full uppercase tracking-widest">
-                        {checkedCount}/{completion.items.length} pts
-                    </span>
+            {/* ── PROGRESS BAR ── */}
+            <div className="px-4 pt-3 pb-2 bg-white">
+                <div className="flex items-center justify-between mb-1.5">
+                    <span className="text-[11px] font-bold text-slate-500">Completion status</span>
+                    <span className="text-[11px] font-black text-primary">{Math.round(progress)}% ({checkedCount}/{completion.items.length} PTS)</span>
                 </div>
-                <div className="w-full bg-slate-200/50 rounded-full h-1.5 md:h-2 overflow-hidden">
+                <div className="w-full bg-slate-100 rounded-full h-1 overflow-hidden">
                     <motion.div
-                        className="bg-primary h-full shadow-[0_0_12px_rgba(var(--primary-rgb),0.3)]"
+                        className="bg-primary h-full rounded-full"
                         initial={{ width: 0 }}
                         animate={{ width: `${progress}%` }}
                         transition={{ duration: 0.5, ease: "easeOut" }}
@@ -539,236 +548,221 @@ const SOPChecklistRunner: React.FC<SOPChecklistRunnerProps> = ({ templateId, com
                 </div>
             </div>
 
-            {/* Checklist Items */}
-            <div className="space-y-2 md:space-y-3 pb-4 md:pb-6">
-                <AnimatePresence>
-                    {template.items.map((item: any, index: number) => {
-                        const completionItem = completion.items.find((c: any) => c.checklist_item_id === item.id);
-                        const isChecked = completionItem?.is_checked;
-                        const hasValue = completionItem?.value || isChecked;
-                        const value = itemValues[item.id];
+            {/* ── BANNER: completed / window-closed / slot-overdue / admin ── */}
+            {adminUnlocked ? (
+                <div className="mx-4 mt-3 mb-1 flex items-center gap-2.5 px-4 py-3 rounded-2xl border bg-amber-50 border-amber-200">
+                    <Lock size={14} className="flex-shrink-0 text-amber-500" />
+                    <div className="flex-1 min-w-0">
+                        <p className="text-[10px] font-black uppercase tracking-widest text-amber-600">Admin Override Active</p>
+                        <p className="text-[9px] font-medium mt-0.5 text-amber-500">Lock is lifted — edits are allowed. Tap the lock icon to re-lock.</p>
+                    </div>
+                </div>
+            ) : isWindowClosed ? (
+                <div className="mx-4 mt-3 mb-1 flex items-center gap-2.5 px-4 py-3 rounded-2xl border bg-rose-50 border-rose-200">
+                    <Lock size={14} className="flex-shrink-0 text-rose-500" />
+                    <div className="flex-1 min-w-0">
+                        <p className="text-[10px] font-black uppercase tracking-widest text-rose-600">Time Window Closed</p>
+                        <p className="text-[9px] font-medium mt-0.5 text-rose-500">The daily window has ended. This checklist is now read-only.</p>
+                    </div>
+                </div>
+            ) : completion?.status === 'completed' ? (
+                <div className="mx-4 mt-3 mb-1 flex items-center gap-2.5 px-4 py-3 rounded-2xl border bg-emerald-50 border-emerald-200">
+                    <Lock size={14} className="flex-shrink-0 text-emerald-500" />
+                    <div className="flex-1 min-w-0">
+                        <p className="text-[10px] font-black uppercase tracking-widest text-emerald-600">Checklist Completed</p>
+                        <p className="text-[9px] font-medium mt-0.5 text-emerald-500">This checklist has been submitted and is now read-only.</p>
+                    </div>
+                </div>
+            ) : isSlotOverdue ? (
+                <div className="mx-4 mt-3 mb-1 flex items-center gap-2.5 px-4 py-3 rounded-2xl border bg-amber-50 border-amber-200">
+                    <Lock size={14} className="flex-shrink-0 text-amber-500" />
+                    <div className="flex-1 min-w-0">
+                        <p className="text-[10px] font-black uppercase tracking-widest text-amber-600">Overdue — Submit Now</p>
+                        <p className="text-[9px] font-medium mt-0.5 text-amber-500">This slot&apos;s time has passed. You can still submit your responses.</p>
+                    </div>
+                </div>
+            ) : null}
 
-                        return (
-                            <motion.div
-                                key={item.id}
-                                initial={{ opacity: 0, x: -10 }}
-                                animate={{ opacity: 1, x: 0 }}
-                                transition={{ delay: index * 0.05 }}
-                                className={`relative group bg-white border rounded-lg md:rounded-xl p-2.5 md:p-4 transition-all duration-300 ${hasValue
-                                    ? 'border-emerald-100 bg-emerald-50/10'
-                                    : 'border-slate-100 hover:border-slate-200'
-                                    }`}
-                            >
-                                <div className="flex items-start gap-2.5 md:gap-4">
-                                    {item.type === 'checkbox' && (
-                                        <button
-                                            onClick={() => handleItemToggle(item.id)}
-                                            className="mt-0.5 flex-shrink-0 relative"
-                                        >
-                                            <AnimatePresence mode="wait">
-                                                {isChecked ? (
-                                                    <motion.div
-                                                        key="checked"
-                                                        initial={{ scale: 0.5, opacity: 0 }}
-                                                        animate={{ scale: 1, opacity: 1 }}
-                                                        exit={{ scale: 0.5, opacity: 0 }}
-                                                    >
-                                                        <CheckCircle2 size={22} className="text-emerald-500 fill-emerald-50" />
-                                                    </motion.div>
-                                                ) : (
-                                                    <motion.div
-                                                        key="unchecked"
-                                                        initial={{ scale: 0.5, opacity: 0 }}
-                                                        animate={{ scale: 1, opacity: 1 }}
-                                                        exit={{ scale: 0.5, opacity: 0 }}
-                                                    >
-                                                        <Circle size={22} className="text-slate-200 group-hover:text-primary transition-colors" />
-                                                    </motion.div>
-                                                )}
-                                            </AnimatePresence>
-                                        </button>
+            {/* ── CHECKLIST ITEMS ── */}
+            <div className="flex-1 overflow-y-auto pb-24">
+                {template.items.map((item: any, index: number) => {
+                    const completionItem = completion.items.find((c: any) => c.checklist_item_id === item.id);
+                    const isChecked = completionItem?.is_checked;
+                    const hasValue = completionItem?.value || isChecked;
+                    const value = itemValues[item.id];
+
+                    // Per-item time slot logic
+                    const itemSlotLocked = (() => {
+                        if (!item.end_time || isChecked || hasValue) return false;
+                        const nowMins = liveNow.getHours() * 60 + liveNow.getMinutes();
+                        const [eH, eM] = item.end_time.slice(0, 5).split(':').map(Number);
+                        return nowMins > eH * 60 + eM;
+                    })();
+                    const itemSlotUpcoming = (() => {
+                        if (!item.start_time || isChecked || hasValue) return false;
+                        const nowMins = liveNow.getHours() * 60 + liveNow.getMinutes();
+                        const [sH, sM] = item.start_time.slice(0, 5).split(':').map(Number);
+                        return nowMins < sH * 60 + sM;
+                    })();
+                    const itemDisabled = isReadOnly || itemSlotLocked || itemSlotUpcoming;
+
+                    const fmt12Step = (t: string) => {
+                        const [h24, m] = t.slice(0, 5).split(':').map(Number);
+                        const ampm = h24 >= 12 ? 'PM' : 'AM';
+                        const h12 = h24 === 0 ? 12 : h24 > 12 ? h24 - 12 : h24;
+                        return `${h12}:${String(m).padStart(2, '0')} ${ampm}`;
+                    };
+
+                    return (
+                        <motion.div
+                            key={item.id}
+                            initial={{ opacity: 0, y: 8 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            transition={{ delay: index * 0.05 }}
+                            className={`border-b border-slate-100 ${itemSlotLocked ? 'opacity-60' : ''}`}
+                        >
+                            {/* Item title row */}
+                            <div className="flex items-start gap-3 px-4 pt-4 pb-1">
+                                {item.type === 'checkbox' ? (
+                                    <button onClick={() => handleItemToggle(item.id)} disabled={itemDisabled} className="flex-shrink-0 mt-0.5 disabled:opacity-60 disabled:cursor-not-allowed">
+                                        <AnimatePresence mode="wait">
+                                            {isChecked ? (
+                                                <motion.div key="checked" initial={{ scale: 0.6 }} animate={{ scale: 1 }}>
+                                                    <CheckCircle2 size={24} className="text-primary" />
+                                                </motion.div>
+                                            ) : (
+                                                <motion.div key="unchecked" initial={{ scale: 0.6 }} animate={{ scale: 1 }}>
+                                                    <Circle size={24} className="text-slate-300" />
+                                                </motion.div>
+                                            )}
+                                        </AnimatePresence>
+                                    </button>
+                                ) : (
+                                    <div className="w-6 h-6 rounded-full border-2 border-slate-200 flex items-center justify-center flex-shrink-0 mt-0.5">
+                                        <span className="text-[9px] font-black text-slate-400">{index + 1}</span>
+                                    </div>
+                                )}
+                                <div className="flex-1 min-w-0">
+                                    <h3 className={`font-black text-base tracking-tight ${isChecked ? 'text-primary' : 'text-slate-900'}`}>{item.title}</h3>
+                                    {/* Step time slot badge */}
+                                    {(item.start_time || item.end_time) && (
+                                        <div className="flex items-center gap-1.5 mt-1">
+                                            <span className={`px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-widest
+                                                ${itemSlotLocked ? 'bg-rose-100 text-rose-600' : itemSlotUpcoming ? 'bg-amber-100 text-amber-600' : 'bg-primary/10 text-primary'}`}>
+                                                {item.start_time ? fmt12Step(item.start_time) : '—'} – {item.end_time ? fmt12Step(item.end_time) : '—'}
+                                                {itemSlotLocked ? ' · Closed' : itemSlotUpcoming ? ' · Upcoming' : ''}
+                                            </span>
+                                        </div>
                                     )}
+                                </div>
+                            </div>
+                            <div className="pb-2" />
 
-                                    <div className="flex-1 min-w-0">
-                                        <div className="flex justify-between items-start mb-1 gap-2">
-                                            <h3 className={`font-black text-sm md:text-lg tracking-tight group-hover:text-primary transition-colors ${isChecked ? 'text-emerald-900' : 'text-slate-900'}`}>
-                                                {item.title}
-                                            </h3>
-                                            <div className="flex-shrink-0">
-                                            </div>
-
-                                        </div>
-                                        <p className="text-slate-500 font-medium text-[11px] md:text-xs mb-2 md:mb-4 line-clamp-2 group-hover:line-clamp-none transition-all">{item.description}</p>
-
-                                        {/* Dynamic Input Area */}
-                                        <div className="mt-2 md:mt-4">
-                                            {item.type === 'text' && (
-                                                <input
-                                                    type="text"
-                                                    value={String(value || '')}
-                                                    onChange={(e) => handleItemToggle(item.id, e.target.value)}
-                                                    placeholder="Enter observation..."
-                                                    className="w-full px-3 md:px-5 py-2.5 md:py-4 bg-slate-50 border border-slate-100 rounded-xl md:rounded-2xl text-xs md:text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-primary/5 focus:border-primary transition-all placeholder:text-slate-300"
-                                                />
-                                            )}
-                                            {item.type === 'number' && (
-                                                <input
-                                                    type="number"
-                                                    value={String(value || '')}
-                                                    onChange={(e) => handleItemToggle(item.id, e.target.value)}
-                                                    placeholder="Enter value..."
-                                                    className="w-full max-w-[200px] md:max-w-xs px-3 md:px-5 py-2.5 md:py-4 bg-slate-50 border border-slate-100 rounded-xl md:rounded-2xl text-xs md:text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-primary/5 focus:border-primary transition-all placeholder:text-slate-300"
-                                                />
-                                            )}
-                                            {item.type === 'yes_no' && (
-                                                <div className="flex gap-2 md:gap-3">
-                                                    <button
-                                                        onClick={() => handleItemToggle(item.id, 'yes')}
-                                                        className={`flex-1 px-4 md:px-8 py-2 md:py-3 rounded-xl md:rounded-2xl text-[10px] md:text-xs font-black uppercase tracking-widest transition-all ${value === 'yes'
-                                                            ? 'bg-emerald-500 text-white shadow-lg shadow-emerald-500/20'
-                                                            : 'bg-slate-50 text-slate-400 border border-slate-100 hover:bg-slate-100'
-                                                            }`}
-                                                    >
-                                                        Yes
-                                                    </button>
-                                                    <button
-                                                        onClick={() => handleItemToggle(item.id, 'no')}
-                                                        className={`flex-1 px-4 md:px-8 py-2 md:py-3 rounded-xl md:rounded-2xl text-[10px] md:text-xs font-black uppercase tracking-widest transition-all ${value === 'no'
-                                                            ? 'bg-rose-500 text-white shadow-lg shadow-rose-500/20'
-                                                            : 'bg-slate-50 text-slate-400 border border-slate-100 hover:bg-slate-100'
-                                                            }`}
-                                                    >
-                                                        No
-                                                    </button>
-                                                </div>
-                                            )}
-                                        </div>
-
-                                        <div className="mt-3 md:mt-6 pt-3 md:pt-6 border-t border-slate-50">
-                                            <p className="text-[8px] md:text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 md:mb-3 flex items-center gap-1.5">
-                                                <Camera size={10} />
-                                                Media Documentation
-                                            </p>
-
-                                            <div className="flex flex-col gap-3">
-                                                {/* Photo & Video Thumbnails */}
-                                                <div className="flex flex-wrap gap-2 md:gap-3">
-                                                    {completionItem?.photo_url && (
-                                                        <div className="relative w-24 h-24 md:w-32 md:h-32 rounded-xl md:rounded-2xl overflow-hidden shadow-md border-2 md:border-4 border-white group/img cursor-pointer"
-                                                            onClick={() => setPreviewImageUrl(completionItem.photo_url!)}
-                                                        >
-                                                            <img
-                                                                src={completionItem.photo_url}
-                                                                alt="Proof"
-                                                                className="w-full h-full object-cover"
-                                                            />
-                                                            <div className="absolute inset-0 bg-black/40 opacity-0 group-hover/img:opacity-100 transition-all flex items-center justify-center">
-                                                                <div className="p-2 bg-white/20 rounded-full text-white">
-                                                                    <Eye size={20} />
-                                                                </div>
-                                                            </div>
-                                                        </div>
-                                                    )}
-
-                                                    {completionItem?.video_url && (
-                                                        <div className="relative w-24 h-24 md:w-32 md:h-32 rounded-xl md:rounded-2xl overflow-hidden shadow-md border-2 md:border-4 border-white group/vid cursor-pointer"
-                                                            onClick={() => setPreviewVideoUrl(completionItem.video_url!)}
-                                                        >
-                                                            <video
-                                                                src={completionItem.video_url}
-                                                                className="w-full h-full object-cover"
-                                                                muted
-                                                                playsInline
-                                                            />
-                                                            <div className="absolute inset-0 bg-black/40 flex items-center justify-center group-hover/vid:bg-black/50 transition-all">
-                                                                <div className="p-2 bg-white/20 rounded-full text-white">
-                                                                    <Play size={20} />
-                                                                </div>
-                                                            </div>
-                                                        </div>
-                                                    )}
-                                                </div>
-
-                                                <div className="flex flex-wrap gap-2 md:gap-3">
-                                                    <button
-                                                        onClick={() => {
-                                                            setActiveCameraItemId(item.id);
-                                                            setShowCameraModal(true);
-                                                        }}
-                                                        className={`flex-1 min-w-[100px] flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl transition-all text-[10px] md:text-xs font-black uppercase tracking-widest ${completionItem?.photo_url
-                                                            ? 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                                                            : 'bg-white border-2 border-slate-100 text-slate-500 hover:border-primary/40 hover:text-primary'
-                                                            }`}
-                                                    >
-                                                        <Camera size={14} />
-                                                        {completionItem?.photo_url ? 'Change Photo' : 'Capture'}
-                                                    </button>
-                                                    <label className={`flex-1 min-w-[100px] flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl cursor-pointer transition-all text-[10px] md:text-xs font-black uppercase tracking-widest text-center ${completionItem?.photo_url
-                                                        ? 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                                                        : 'bg-white border-2 border-slate-100 text-slate-500 hover:border-primary/40 hover:text-primary'
-                                                        }`}>
-                                                        <Paperclip size={14} />
-                                                        {completionItem?.photo_url ? 'Upload New' : 'Gallery'}
-                                                        <input
-                                                            type="file"
-                                                            accept="image/*"
-                                                            className="hidden"
-                                                            onChange={(e) => handleFileSelect(e, item.id)}
-                                                        />
-                                                    </label>
-                                                    <button
-                                                        onClick={() => {
-                                                            setActiveVideoItemId(item.id);
-                                                            setShowVideoModal(true);
-                                                        }}
-                                                        className={`flex-1 min-w-[100px] flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl transition-all text-[10px] md:text-xs font-black uppercase tracking-widest ${completionItem?.video_url
-                                                            ? 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                                                            : 'bg-white border-2 border-slate-100 text-slate-500 hover:border-red-400/40 hover:text-red-500'
-                                                            }`}
-                                                    >
-                                                        <Video size={14} />
-                                                        {completionItem?.video_url ? 'Re-Record' : '15s Video'}
-                                                    </button>
-                                                </div>
-                                            </div>
-                                        </div>
-
-
+                            {/* Photo preview — full width */}
+                            {completionItem?.photo_url && (
+                                <div
+                                    className="mx-4 mb-3 rounded-2xl overflow-hidden cursor-pointer relative group"
+                                    onClick={() => setPreviewImageUrl(completionItem.photo_url!)}
+                                >
+                                    <img src={completionItem.photo_url} alt="Proof" className="w-full h-48 object-cover" />
+                                    <div className="absolute inset-0 bg-black/30 opacity-0 group-hover:opacity-100 transition-all flex items-center justify-center">
+                                        <Eye size={28} className="text-white" />
                                     </div>
                                 </div>
-                            </motion.div>
-                        );
-                    })}
-                </AnimatePresence>
+                            )}
+
+                            {/* Video preview — full width */}
+                            {completionItem?.video_url && (
+                                <div
+                                    className="mx-4 mb-3 rounded-2xl overflow-hidden cursor-pointer relative"
+                                    onClick={() => setPreviewVideoUrl(completionItem.video_url!)}
+                                >
+                                    <video src={completionItem.video_url} className="w-full h-48 object-cover" muted playsInline />
+                                    <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
+                                        <div className="w-12 h-12 rounded-full bg-white/20 flex items-center justify-center">
+                                            <Play size={22} className="text-white ml-1" />
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* Dynamic input */}
+                            {item.type === 'text' && (
+                                <div className="px-4 mb-3">
+                                    <input type="text" value={String(value || '')} onChange={(e) => handleItemToggle(item.id, e.target.value)}
+                                        disabled={itemDisabled} placeholder="Enter observation..."
+                                        className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-medium focus:outline-none focus:border-primary transition-all disabled:opacity-60 disabled:cursor-not-allowed" />
+                                </div>
+                            )}
+                            {item.type === 'number' && (
+                                <div className="px-4 mb-3">
+                                    <input type="number" value={String(value || '')} onChange={(e) => handleItemToggle(item.id, e.target.value)}
+                                        disabled={itemDisabled} placeholder="Enter value..."
+                                        className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-medium focus:outline-none focus:border-primary transition-all disabled:opacity-60 disabled:cursor-not-allowed" />
+                                </div>
+                            )}
+                            {item.type === 'yes_no' && (
+                                <div className="px-4 mb-3 flex gap-3">
+                                    <button onClick={() => handleItemToggle(item.id, 'yes')} disabled={itemDisabled}
+                                        className={`flex-1 py-2.5 rounded-xl font-black text-xs uppercase tracking-widest transition-all disabled:opacity-60 disabled:cursor-not-allowed ${value === 'yes' ? 'bg-emerald-500 text-white' : 'bg-slate-100 text-slate-500'}`}>Yes</button>
+                                    <button onClick={() => handleItemToggle(item.id, 'no')} disabled={itemDisabled}
+                                        className={`flex-1 py-2.5 rounded-xl font-black text-xs uppercase tracking-widest transition-all disabled:opacity-60 disabled:cursor-not-allowed ${value === 'no' ? 'bg-rose-500 text-white' : 'bg-slate-100 text-slate-500'}`}>No</button>
+                                </div>
+                            )}
+
+                            {/* Media documentation */}
+                            <div className="px-4 pb-4">
+                                <p className="text-[11px] font-black text-slate-800 uppercase tracking-widest mb-0.5">Media Documentation</p>
+                                <p className="text-[11px] text-slate-400 font-medium mb-3">
+                                    {item.description || 'Upload or capture required proof of completion'}
+                                </p>
+                                <div className="flex gap-2">
+                                    {/* CAPTURE */}
+                                    <button onClick={() => { setActiveCameraItemId(item.id); setShowCameraModal(true); }} disabled={itemDisabled}
+                                        className={`flex-1 flex flex-col items-center gap-1.5 py-3 rounded-2xl border transition-all disabled:opacity-40 disabled:cursor-not-allowed ${completionItem?.photo_url ? 'border-primary/30 bg-primary/5 text-primary' : 'border-slate-200 text-primary hover:border-primary/40'}`}>
+                                        <Camera size={18} />
+                                        <span className="text-[9px] font-black uppercase tracking-widest">{completionItem?.photo_url ? 'Retake' : 'Capture'}</span>
+                                    </button>
+                                    {/* GALLERY */}
+                                    <label className={`flex-1 flex flex-col items-center gap-1.5 py-3 rounded-2xl border transition-all ${itemDisabled ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer hover:border-slate-400'} ${completionItem?.photo_url ? 'border-slate-300 bg-slate-50 text-slate-500' : 'border-slate-200 text-slate-500'}`}>
+                                        <Paperclip size={18} />
+                                        <span className="text-[9px] font-black uppercase tracking-widest">Gallery</span>
+                                        <input type="file" accept="image/*" className="hidden" disabled={itemDisabled} onChange={(e) => handleFileSelect(e, item.id)} />
+                                    </label>
+                                    {/* 15S VIDEO */}
+                                    <button onClick={() => { setActiveVideoItemId(item.id); setShowVideoModal(true); }} disabled={itemDisabled}
+                                        className={`flex-1 flex flex-col items-center gap-1.5 py-3 rounded-2xl border transition-all disabled:opacity-40 disabled:cursor-not-allowed ${completionItem?.video_url ? 'border-slate-300 bg-slate-50 text-slate-500' : 'border-slate-200 text-slate-500 hover:border-slate-400'}`}>
+                                        <Video size={18} />
+                                        <span className="text-[9px] font-black uppercase tracking-widest">{completionItem?.video_url ? 'Re-Record' : '15s Video'}</span>
+                                    </button>
+                                </div>
+                            </div>
+                        </motion.div>
+                    );
+                })}
             </div>
 
-            {/* Sticky Actions Bar */}
-            <div className="flex gap-2 md:gap-4 pt-4 md:pt-10 sticky bottom-4 md:bottom-8 z-10">
-                <button
-                    onClick={onCancel}
-                    className="flex-1 px-4 md:px-8 py-3 md:py-5 border border-slate-200 bg-white text-slate-500 rounded-xl md:rounded-3xl hover:bg-slate-50 transition-all font-black uppercase tracking-widest md:tracking-[0.2em] text-[9px] md:text-xs"
-                >
-                    Cancel
+            {/* ── STICKY FOOTER ── */}
+            <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-slate-100 px-4 py-3 flex gap-3 z-20">
+                <button onClick={onCancel}
+                    className="flex-1 py-3.5 border border-slate-200 text-slate-600 rounded-2xl font-black uppercase tracking-widest text-[10px] hover:bg-slate-50 transition-all">
+                    {isReadOnly ? 'Close' : 'Cancel'}
                 </button>
-                <button
-                    onClick={handleSubmit}
-                    disabled={isSaving || progress < 100}
-                    className="flex-[2] px-4 md:px-8 py-3 md:py-5 bg-primary text-white rounded-xl md:rounded-3xl hover:opacity-90 transition-all font-black uppercase tracking-widest md:tracking-[0.2em] text-[9px] md:text-xs shadow-2xl shadow-primary/30 disabled:opacity-30 disabled:shadow-none flex items-center justify-center gap-2 md:gap-3"
-                >
-                    {isSaving ? (
-                        <>
-                            <Loader2 size={14} className="animate-spin" />
-                            Saving...
-                        </>
-                    ) : progress < 100 ? (
-                        `${checkedCount}/${completion.items.length} Done`
-                    ) : (
-                        <>
-                            <CheckCircle2 size={14} />
-                            Submit Report
-                        </>
-                    )}
-                </button>
+                {isReadOnly ? (
+                    <div className="flex-[2] py-3.5 bg-slate-100 text-slate-400 rounded-2xl font-black uppercase tracking-widest text-[10px] flex items-center justify-center gap-2 cursor-not-allowed">
+                        <Lock size={11} />
+                        {isWindowClosed ? 'Window Closed' : 'Submitted'}
+                    </div>
+                ) : (
+                    <button onClick={handleSubmit} disabled={isSaving}
+                        className="flex-[2] py-3.5 bg-primary text-white rounded-2xl font-black uppercase tracking-widest text-[10px] hover:opacity-90 transition-all shadow-lg shadow-primary/20 disabled:opacity-50 flex items-center justify-center gap-2">
+                        {isSaving ? (
+                            <><Loader2 size={13} className="animate-spin" /> Saving...</>
+                        ) : (
+                            <>{checkedCount}/{completion.items.length} Done <ChevronRight size={14} /></>
+                        )}
+                    </button>
+                )}
             </div>
 
             {/* Camera Modal */}
@@ -779,7 +773,7 @@ const SOPChecklistRunner: React.FC<SOPChecklistRunnerProps> = ({ templateId, com
                     setActiveCameraItemId(null);
                 }}
                 onCapture={handlePhotoCapture}
-                title="SOP Visual Audit"
+                title="Checklist Visual Audit"
             />
 
             {/* Image Preview Modal */}
@@ -798,7 +792,7 @@ const SOPChecklistRunner: React.FC<SOPChecklistRunnerProps> = ({ templateId, com
                     setActiveVideoItemId(null);
                 }}
                 onCapture={handleVideoCapture}
-                title="SOP Video Audit"
+                title="Checklist Video Audit"
                 maxDuration={15}
             />
 

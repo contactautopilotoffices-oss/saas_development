@@ -1,0 +1,28 @@
+{
+  "crons": [
+    {
+      "path": "/api/cron/check-sop-reminders",
+      "schedule": "* * * * *"
+    },
+    {
+      "path": "/api/cron/check-sop-missed",
+      "schedule": "* * * * *"
+    },
+    {
+      "path": "/api/cron/check-sla",
+      "schedule": "* * * * *"
+    },
+    {
+      "path": "/api/cron/check-escalation",
+      "schedule": "* * * * *"
+    },
+    {
+      "path": "/api/cron/check-diesel",
+      "schedule": "0 * * * *"
+    },
+    {
+      "path": "/api/cron/generate-stock-reports",
+      "schedule": "0 0 * * *"
+    }
+  ]
+}

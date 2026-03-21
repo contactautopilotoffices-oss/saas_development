@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { useSearchParams } from 'next/navigation';
+import { useSearchParams, useRouter } from 'next/navigation';
 import {
     Sparkles, Package, ClipboardCheck, LogOut, Menu, X, LayoutDashboard, Settings, UserCircle, Bell, ScanLine
 } from 'lucide-react';
@@ -28,7 +28,12 @@ const StockMovementModal = dynamic(
     { ssr: false }
 );
 
-type Tab = 'stock' | 'scanner' | 'sop' | 'settings' | 'profile';
+const UniversalQRScannerModal = dynamic(
+    () => import('@/frontend/components/shared/UniversalQRScannerModal'),
+    { ssr: false }
+);
+
+type Tab = 'stock' | 'scanner' | 'checklist' | 'settings' | 'profile';
 
 interface SoftServiceManagerDashboardProps {
     propertyId: string;
@@ -37,24 +42,27 @@ interface SoftServiceManagerDashboardProps {
 
 const SoftServiceManagerDashboard: React.FC<SoftServiceManagerDashboardProps> = ({ propertyId, userRole = '' }) => {
     const searchParams = useSearchParams();
+    const router = useRouter();
     const { user, signOut } = useAuth();
     const supabase = useMemo(() => createClient(), []);
 
     const isManager = userRole === 'soft_service_manager' || userRole === 'soft_service_supervisor';
     const [activeTab, setActiveTab] = useState<Tab>(() => {
         const tab = searchParams?.get('tab') as Tab;
-        if (tab && ['stock', 'scanner', 'sop', 'settings', 'profile'].includes(tab)) return tab;
-        return isManager ? 'stock' : 'sop';
+        if (tab && ['stock', 'scanner', 'checklist', 'settings', 'profile'].includes(tab)) return tab;
+        return isManager ? 'stock' : 'checklist';
     });
     const [property, setProperty] = useState<any>(null);
     const [sidebarOpen, setSidebarOpen] = useState(false);
     const [showSignOutModal, setShowSignOutModal] = useState(false);
     const [showScannerModal, setShowScannerModal] = useState(false);
+    const [showUniversalScanner, setShowUniversalScanner] = useState(false);
+    const [preSelectedStockItemId, setPreSelectedStockItemId] = useState<string | undefined>();
 
     // Sync tab with URL
     useEffect(() => {
         const tab = searchParams?.get('tab') as Tab;
-        if (tab && tab !== activeTab && ['stock', 'scanner', 'sop', 'settings', 'profile'].includes(tab)) {
+        if (tab && tab !== activeTab && ['stock', 'scanner', 'checklist', 'settings', 'profile'].includes(tab)) {
             setActiveTab(tab);
         }
     }, [searchParams]);
@@ -136,7 +144,7 @@ const SoftServiceManagerDashboard: React.FC<SoftServiceManagerDashboardProps> = 
                                         Stock Management
                                     </button>
                                     <button
-                                        onClick={() => { setSidebarOpen(false); setShowScannerModal(true); }}
+                                        onClick={() => { setSidebarOpen(false); setShowUniversalScanner(true); }}
                                         className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl transition-all duration-200 font-bold text-sm text-text-secondary hover:bg-muted hover:text-text-primary"
                                     >
                                         <ScanLine className="w-4 h-4" />
@@ -145,8 +153,8 @@ const SoftServiceManagerDashboard: React.FC<SoftServiceManagerDashboardProps> = 
                                 </>
                             )}
                             <button
-                                onClick={() => handleTabChange('sop')}
-                                className={`w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl transition-all duration-200 font-bold text-sm ${activeTab === 'sop'
+                                onClick={() => handleTabChange('checklist')}
+                                className={`w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl transition-all duration-200 font-bold text-sm ${activeTab === 'checklist'
                                     ? 'bg-primary text-text-inverse shadow-sm'
                                     : 'text-text-secondary hover:bg-muted hover:text-text-primary'
                                     }`}
@@ -207,10 +215,29 @@ const SoftServiceManagerDashboard: React.FC<SoftServiceManagerDashboardProps> = 
 
             <StockMovementModal
                 isOpen={showScannerModal}
-                onClose={() => setShowScannerModal(false)}
+                onClose={() => { setShowScannerModal(false); setPreSelectedStockItemId(undefined); }}
                 propertyId={propertyId}
-                autoOpenScanner={true}
+                preSelectedItemId={preSelectedStockItemId}
+                autoOpenScanner={!preSelectedStockItemId}
             />
+
+            {showUniversalScanner && (
+                <UniversalQRScannerModal
+                    title="Scanner"
+                    onClose={() => setShowUniversalScanner(false)}
+                    onResult={(result: any) => {
+                        setShowUniversalScanner(false);
+                        if (result.type === 'checklist') {
+                            router.push(`/checklist/${result.templateId}`);
+                        } else if (result.type === 'stock') {
+                            setPreSelectedStockItemId(result.itemId);
+                            setShowScannerModal(true);
+                        } else if (result.type === 'barcode') {
+                            router.push(`/properties/${propertyId}/stock?barcode=${encodeURIComponent(result.value)}`);
+                        }
+                    }}
+                />
+            )}
 
             {/* Main Content */}
             <main className="flex-1 min-w-0 lg:ml-64 flex flex-col bg-background border-l border-slate-300 shadow-[-4px_0_12px_-4px_rgba(0,0,0,0.05)] relative z-10 min-h-screen overflow-x-hidden">
@@ -239,7 +266,7 @@ const SoftServiceManagerDashboard: React.FC<SoftServiceManagerDashboardProps> = 
                     </div>
                 </header>
 
-                <div className={`flex-1 overflow-y-auto ${activeTab === 'sop' ? 'p-0' : 'p-2 md:p-5 lg:p-8'}`} key={activeTab}>
+                <div className={`flex-1 overflow-y-auto ${activeTab === 'checklist' ? 'p-0' : 'p-2 md:p-5 lg:p-8'}`} key={activeTab}>
 
                     <AnimatePresence mode="wait">
                         <motion.div
@@ -258,7 +285,7 @@ const SoftServiceManagerDashboard: React.FC<SoftServiceManagerDashboardProps> = 
                                 <StockDashboard propertyId={propertyId} hideReports={true} hideInventory={true} />
                             )}
 
-                            {activeTab === 'sop' && (
+                            {activeTab === 'checklist' && (
                                 <SOPDashboard propertyId={propertyId} />
                             )}
 

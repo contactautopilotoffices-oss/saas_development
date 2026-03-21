@@ -68,7 +68,7 @@ const VideoPreviewModal: React.FC<VideoPreviewModalProps> = ({ isOpen, onClose, 
             const url = URL.createObjectURL(blob);
             const link = document.createElement('a');
             link.href = url;
-            link.download = `sop-video-${Date.now()}.${ext}`;
+            link.download = `checklist-video-${Date.now()}.${ext}`;
             document.body.appendChild(link);
             link.click();
             document.body.removeChild(link);
@@ -109,7 +109,7 @@ const VideoPreviewModal: React.FC<VideoPreviewModalProps> = ({ isOpen, onClose, 
                                 {title || 'Video Proof'}
                             </p>
                             <p className="text-white/40 text-[10px] font-bold uppercase tracking-widest">
-                                SOP Video Proof
+                                Checklist Video Proof
                             </p>
                         </div>
                         <div className="flex items-center gap-1">

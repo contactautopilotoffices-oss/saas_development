@@ -10,7 +10,7 @@ import { cn } from '@/backend/lib/utils';
 
 // Premium Font Utility for "Söhne" feel (using Outfit variable)
 const fontHeading = "font-outfit";
-const fontUI = "font-inter";
+const fontUI = "font-inter"; 
 
 
 export default function HeroSection() {

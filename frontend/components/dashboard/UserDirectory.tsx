@@ -429,7 +429,12 @@ const UserDirectory = ({ orgId, orgName, propertyId, properties = [], onUserUpda
             {/* Header */}
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                 <div>
-                    <h2 className="text-2xl font-black text-slate-900 tracking-tight">User Management</h2>
+                    <div className="flex items-center gap-3">
+                        <h2 className="text-2xl font-black text-slate-900 tracking-tight">User Management</h2>
+                        <span className="px-2.5 py-1 bg-slate-100 text-slate-600 text-[10px] font-black uppercase tracking-wider rounded-lg border border-slate-200">
+                            {filteredUsers.length} Users
+                        </span>
+                    </div>
                     <p className="text-slate-500 font-medium text-sm mt-1">Manage user access, roles, and permissions.</p>
                 </div>
                 {orgId && (
@@ -812,7 +817,7 @@ const UserDirectory = ({ orgId, orgName, propertyId, properties = [], onUserUpda
                                                     : isSelected
                                                         ? 'bg-primary/10 border-primary text-primary'
                                                         : 'bg-surface-elevated border-border text-text-secondary hover:border-primary hover:bg-primary/10'
-                                                }`}
+                                                    }`}
                                             >
                                                 <span className="flex items-center gap-2">
                                                     <Building2 className="w-4 h-4" />

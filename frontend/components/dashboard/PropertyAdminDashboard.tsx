@@ -4,8 +4,8 @@ import React, { useState, useEffect, useMemo, useCallback, useRef, memo } from '
 import {
     LayoutDashboard, Users, Ticket, Settings, UserCircle, UsersRound,
     Search, Plus, Filter, LogOut, ChevronRight, MapPin, Building2,
-    Calendar, CheckCircle2, AlertCircle, Clock, Coffee, IndianRupee, FileDown, Fuel, Store, Activity, Upload, FileBarChart, Menu, X, Zap, RefreshCw,
-    Package, ClipboardCheck, Scan, ChevronDown, Check
+    Calendar, CheckCircle2, AlertCircle, Clock, Coffee, IndianRupee, FileDown, Fuel, Store, Activity, Upload, FileBarChart, Menu, X, Zap, RefreshCw, Database,
+    Package, ClipboardCheck, Scan, ChevronDown, Check, GitBranch
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { createClient } from '@/frontend/utils/supabase/client';
@@ -13,6 +13,7 @@ import { useAuth } from '@/frontend/context/AuthContext';
 import { useDataCache } from '@/frontend/context/DataCacheContext';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import UserDirectory from './UserDirectory';
+import ESSLRawDataView from './ESSLRawDataView';
 import SignOutModal from '@/frontend/components/ui/SignOutModal';
 import DieselAnalyticsDashboard from '@/frontend/components/diesel/DieselAnalyticsDashboard';
 import DieselStaffDashboard from '@/frontend/components/diesel/DieselStaffDashboard';
@@ -35,9 +36,11 @@ import AdminRoomManager from '@/frontend/components/meeting-rooms/AdminRoomManag
 import StockDashboard from '@/frontend/components/stock/StockDashboard';
 import StockMovementModal from '@/frontend/components/stock/StockMovementModal';
 import SOPDashboard from '@/frontend/components/sop/SOPDashboard';
+import EscalationHierarchyBuilder from '@/frontend/components/escalation/EscalationHierarchyBuilder';
+import UniversalQRScannerModal, { QRScanResult } from '@/frontend/components/shared/UniversalQRScannerModal';
 
 // Types
-type Tab = 'overview' | 'requests' | 'reports' | 'users' | 'visitors' | 'rooms' | 'diesel' | 'diesel_analytics' | 'electricity' | 'electricity_analytics' | 'cafeteria' | 'settings' | 'profile' | 'units' | 'vendor_revenue' | 'stock' | 'sop';
+type Tab = 'overview' | 'requests' | 'reports' | 'users' | 'visitors' | 'rooms' | 'diesel' | 'diesel_analytics' | 'electricity' | 'electricity_analytics' | 'cafeteria' | 'settings' | 'profile' | 'units' | 'vendor_revenue' | 'stock' | 'checklist' | 'escalation' | 'essl';
 
 interface Property {
     id: string;
@@ -82,6 +85,8 @@ const PropertyAdminDashboard = () => {
     const [statsVersion, setStatsVersion] = useState(0);
     const [sidebarOpen, setSidebarOpen] = useState(false);
     const [showScannerModal, setShowScannerModal] = useState(false);
+    const [showUniversalScanner, setShowUniversalScanner] = useState(false);
+    const [preSelectedStockItemId, setPreSelectedStockItemId] = useState<string | undefined>();
     const [pendingStatusFilter, setPendingStatusFilter] = useState('all');
 
     // Property switcher — derive directly from AuthContext membership (already fetched + cached)
@@ -118,7 +123,7 @@ const PropertyAdminDashboard = () => {
     // Restore tab from URL
     useEffect(() => {
         const tab = searchParams.get('tab');
-        if (tab && ['overview', 'requests', 'reports', 'users', 'visitors', 'diesel', 'diesel_analytics', 'electricity', 'electricity_analytics', 'cafeteria', 'settings', 'profile', 'units', 'vendor_revenue', 'stock', 'sop'].includes(tab)) {
+        if (tab && ['overview', 'requests', 'reports', 'users', 'visitors', 'diesel', 'diesel_analytics', 'electricity', 'electricity_analytics', 'cafeteria', 'settings', 'profile', 'units', 'vendor_revenue', 'stock', 'checklist', 'essl'].includes(tab)) {
             setActiveTab(tab as Tab);
         }
         const filter = searchParams.get('filter');
@@ -285,7 +290,7 @@ const PropertyAdminDashboard = () => {
                                     <span className="text-[10px] font-black uppercase tracking-widest text-center mt-1">New Request</span>
                                 </button>
                                 <button
-                                    onClick={() => setShowScannerModal(true)}
+                                    onClick={() => setShowUniversalScanner(true)}
                                     className="flex flex-col items-center justify-center gap-1.5 p-2.5 bg-white text-text-primary rounded-xl hover:bg-muted transition-all border-2 border-primary/20 group shadow-sm"
                                 >
                                     <div className="w-8 h-8 bg-primary/10 rounded-lg flex items-center justify-center text-primary group-hover:scale-110 transition-transform">
@@ -426,14 +431,24 @@ const PropertyAdminDashboard = () => {
                                 Stock Management
                             </button>
                             <button
-                                onClick={() => handleTabChange('sop')}
-                                className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 font-bold text-sm ${activeTab === 'sop'
+                                onClick={() => handleTabChange('checklist')}
+                                className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 font-bold text-sm ${activeTab === 'checklist'
                                     ? 'bg-primary text-text-inverse shadow-sm'
                                     : 'text-text-secondary hover:bg-muted hover:text-text-primary'
                                     }`}
                             >
                                 <ClipboardCheck className="w-4 h-4" />
                                 Checklists
+                            </button>
+                            <button
+                                onClick={() => handleTabChange('escalation')}
+                                className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 font-bold text-sm ${activeTab === 'escalation'
+                                    ? 'bg-primary text-text-inverse shadow-sm'
+                                    : 'text-text-secondary hover:bg-muted hover:text-text-primary'
+                                    }`}
+                            >
+                                <GitBranch className="w-4 h-4" />
+                                Escalation
                             </button>
                             <button
                                 onClick={() => handleTabChange('vendor_revenue')}
@@ -444,6 +459,16 @@ const PropertyAdminDashboard = () => {
                             >
                                 <Coffee className="w-4 h-4" />
                                 Cafeteria Revenue
+                            </button>
+                            <button
+                                onClick={() => handleTabChange('essl')}
+                                className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 font-bold text-sm ${activeTab === 'essl'
+                                    ? 'bg-primary text-text-inverse shadow-sm'
+                                    : 'text-text-secondary hover:bg-muted hover:text-text-primary'
+                                    }`}
+                            >
+                                <Database className="w-4 h-4" />
+                                eSSL Raw Data
                             </button>
                         </div>
                     </div>
@@ -514,26 +539,28 @@ const PropertyAdminDashboard = () => {
             {/* Main Content */}
             <main className="flex-1 min-w-0 overflow-x-hidden lg:ml-72 flex flex-col bg-white border-l border-slate-300 shadow-[-4px_0_12px_-4px_rgba(0,0,0,0.05)] relative z-10">
                 {activeTab !== 'overview' && (
-                    <header className="h-20 flex justify-between items-center px-4 md:px-8 lg:px-12 mb-2 md:mb-4 border-b border-border/10">
-                        <div className="flex items-center gap-4">
+                    <header className="h-14 flex justify-between items-center px-3 md:px-8 lg:px-12 mb-2 md:mb-4 border-b border-border/10">
+                        <div className="flex items-center gap-3">
                             {/* Mobile Menu Toggle */}
                             <button
                                 onClick={() => setSidebarOpen(true)}
-                                className="p-2 -ml-2 lg:hidden text-text-tertiary hover:text-text-primary transition-colors"
+                                className="w-9 h-9 flex items-center justify-center lg:hidden text-text-tertiary hover:text-text-primary transition-colors rounded-lg hover:bg-slate-100"
                             >
-                                <Menu className="w-6 h-6" />
+                                <Menu className="w-5 h-5" />
                             </button>
-                            <div>
-                                <h1 className="text-2xl md:text-3xl font-black text-text-primary tracking-tight capitalize">{activeTab.replace(/_/g, ' ')}</h1>
-                                <p className="text-text-tertiary text-xs md:text-sm font-medium mt-0.5">{property?.address || 'Property Management Hub'}</p>
-                            </div>
+                            {activeTab !== 'checklist' && (
+                                <div className="hidden md:block">
+                                    <h1 className="text-2xl md:text-3xl font-black text-text-primary tracking-tight capitalize">{activeTab.replace(/_/g, ' ')}</h1>
+                                    <p className="text-text-tertiary text-xs md:text-sm font-medium mt-0.5">{property?.address || 'Property Management Hub'}</p>
+                                </div>
+                            )}
                         </div>
-                        <div className="flex items-center gap-6">
+                        <div className="flex items-center gap-2 md:gap-3">
                             {/* Property Indicator / Switcher — always visible, dropdown when 2+ properties */}
                             <div className="relative" ref={propertyDropdownRef}>
                                 <button
                                     onClick={() => assignedProperties.length > 1 && setShowPropertyDropdown(v => !v)}
-                                    className={`flex items-center gap-1.5 px-2.5 md:px-3 py-2 bg-slate-100 border border-slate-200 rounded-xl transition-colors text-xs md:text-sm font-bold text-slate-800 min-h-[40px] ${assignedProperties.length > 1 ? 'hover:bg-slate-200 cursor-pointer active:bg-slate-300' : 'cursor-default'}`}
+                                    className={`flex items-center gap-1.5 px-2.5 py-2 bg-slate-100 border border-slate-200 rounded-xl transition-colors text-xs font-bold text-slate-800 h-9 ${assignedProperties.length > 1 ? 'hover:bg-slate-200 cursor-pointer active:bg-slate-300' : 'cursor-default'}`}
                                 >
                                     <Building2 className="w-4 h-4 text-primary flex-shrink-0" />
                                     <span className="max-w-[80px] sm:max-w-[120px] md:max-w-[160px] truncate">{property?.name || 'Property'}</span>
@@ -581,29 +608,27 @@ const PropertyAdminDashboard = () => {
                             {/* Notification Bell */}
                             <NotificationBell />
 
-                            {/* User Account Info - Simplified Level Look */}
-                            <div className="flex items-center gap-6">
-                                <button
-                                    onClick={() => handleTabChange('profile')}
-                                    className="flex items-center gap-4 group transition-all"
-                                >
-                                    <div className="w-11 h-11 bg-primary rounded-2xl flex items-center justify-center text-text-inverse font-bold text-base group-hover:scale-105 transition-transform shadow-sm shadow-primary/20">
-                                        {user?.email?.[0].toUpperCase() || 'P'}
-                                    </div>
-                                    <div className="text-left hidden md:block">
-                                        <h4 className="text-[15px] font-black text-text-primary leading-none mb-1 group-hover:text-primary transition-colors">
-                                            {user?.user_metadata?.full_name || 'Property Admin'}
-                                        </h4>
-                                        <p className="text-[10px] text-text-tertiary font-black uppercase tracking-[0.15em]">
-                                            View Profile
-                                        </p>
-                                    </div>
-                                </button>
-
-                                <div className="hidden lg:flex flex-col items-end border-l border-border pl-6 h-8 justify-center">
-                                    <span className="text-[11px] font-black text-text-tertiary uppercase tracking-widest leading-none mb-1">Access Level</span>
-                                    <span className="text-xs text-primary font-black uppercase tracking-widest leading-none">Property admin</span>
+                            {/* User Account Info */}
+                            <button
+                                onClick={() => handleTabChange('profile')}
+                                className="flex items-center gap-2 group transition-all"
+                            >
+                                <div className="w-9 h-9 bg-primary rounded-full flex items-center justify-center text-text-inverse font-bold text-sm group-hover:scale-105 transition-transform shadow-sm shadow-primary/20 flex-shrink-0">
+                                    {user?.email?.[0].toUpperCase() || 'P'}
                                 </div>
+                                <div className="text-left hidden md:block">
+                                    <h4 className="text-[13px] font-black text-text-primary leading-none mb-0.5 group-hover:text-primary transition-colors">
+                                        {user?.user_metadata?.full_name || 'Property Admin'}
+                                    </h4>
+                                    <p className="text-[10px] text-text-tertiary font-black uppercase tracking-[0.15em]">
+                                        View Profile
+                                    </p>
+                                </div>
+                            </button>
+
+                            <div className="hidden lg:flex flex-col items-end border-l border-border pl-4 h-8 justify-center">
+                                <span className="text-[11px] font-black text-text-tertiary uppercase tracking-widest leading-none mb-1">Access Level</span>
+                                <span className="text-xs text-primary font-black uppercase tracking-widest leading-none">Property admin</span>
                             </div>
                         </div>
                     </header>
@@ -612,7 +637,7 @@ const PropertyAdminDashboard = () => {
                 <AnimatePresence mode="wait">
                     <motion.div
                         key={activeTab}
-                        className={['overview', 'sop'].includes(activeTab) ? '' : 'px-0 md:px-8 lg:px-12 pt-0 md:pt-4 pb-8'}
+                        className={['overview', 'checklist'].includes(activeTab) ? '' : 'px-0 md:px-8 lg:px-12 pt-0 md:pt-4 pb-8'}
 
                         initial={{ opacity: 0, y: 10 }}
                         animate={{ opacity: 1, y: 0 }}
@@ -672,7 +697,14 @@ const PropertyAdminDashboard = () => {
                         {activeTab === 'electricity' && property && <ElectricityStaffDashboard propertyId={property.id} />}
                         {activeTab === 'electricity_analytics' && property && <ElectricityAnalyticsDashboard propertyId={property.id} />}
                         {activeTab === 'stock' && property && <StockDashboard propertyId={property.id} />}
-                        {activeTab === 'sop' && property && <SOPDashboard propertyId={property.id} />}
+                        {activeTab === 'checklist' && property && <SOPDashboard propertyId={property.id} />}
+                        {activeTab === 'escalation' && property && (
+                            <EscalationHierarchyBuilder
+                                organizationId={property.organization_id}
+                                propertyId={property.id}
+                            />
+                        )}
+                        {activeTab === 'essl' && <ESSLRawDataView />}
                         {activeTab === 'settings' && <SettingsView />}
                         {activeTab === 'profile' && (
                             <div className="flex justify-center items-start py-8">
@@ -769,11 +801,30 @@ const PropertyAdminDashboard = () => {
 
             <StockMovementModal
                 isOpen={showScannerModal}
-                onClose={() => setShowScannerModal(false)}
+                onClose={() => { setShowScannerModal(false); setPreSelectedStockItemId(undefined); }}
                 propertyId={propertyId}
-                autoOpenScanner={true}
+                preSelectedItemId={preSelectedStockItemId}
+                autoOpenScanner={!preSelectedStockItemId}
                 onSuccess={() => setStatsVersion(v => v + 1)}
             />
+
+            {showUniversalScanner && (
+                <UniversalQRScannerModal
+                    title="Scanner"
+                    onClose={() => setShowUniversalScanner(false)}
+                    onResult={(result: QRScanResult) => {
+                        setShowUniversalScanner(false);
+                        if (result.type === 'checklist') {
+                            router.push(`/checklist/${result.templateId}`);
+                        } else if (result.type === 'stock') {
+                            setPreSelectedStockItemId(result.itemId);
+                            setShowScannerModal(true);
+                        } else if (result.type === 'barcode') {
+                            router.push(`/property/${propertyId}/stock?barcode=${encodeURIComponent(result.value)}`);
+                        }
+                    }}
+                />
+            )}
         </div>
     );
 };
