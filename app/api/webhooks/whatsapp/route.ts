@@ -294,7 +294,6 @@ async function processIncomingMessage(
                 .from('properties')
                 .select('id, name, organization_id')
                 .eq('organization_id', orgAdminRecord.organization_id)
-                .eq('is_active', true)
                 .limit(12); // poll max is 12
             propertyOptions = (allProps || []).map(p => ({
                 id: p.id, name: p.name, organization_id: p.organization_id,

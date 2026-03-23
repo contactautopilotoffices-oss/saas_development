@@ -760,6 +760,13 @@ export class NotificationService {
                 console.error('>>>>>>>>>> [NOTIFICATION TEST] !!! DATABASE INSERT FAILED !!!');
                 console.error('>>>>>>>>>> Error Details:', JSON.stringify(notifError));
                 console.error('>>>>>>>>>> Payload tried:', JSON.stringify(payload));
+                // Still attempt WhatsApp even if DB insert fails
+                WhatsAppService.sendToUser(payload.userId, {
+                    message: payload.whatsapp?.message || `*${payload.title}*\n\n${payload.message}`,
+                    deepLink: payload.deepLink,
+                    mediaUrl: payload.whatsapp?.mediaUrl,
+                    mediaType: payload.whatsapp?.mediaType,
+                }).catch(err => console.error('[NotificationService] WhatsApp fallback error:', err));
                 return;
             }
 
