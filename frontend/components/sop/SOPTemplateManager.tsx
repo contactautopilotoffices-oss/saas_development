@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { Plus, Play, Trash2, Edit3, ClipboardList, Square, Sparkles, QrCode, LayoutGrid, History } from 'lucide-react';
+import { Plus, Play, Trash2, Edit3, ClipboardList, Square, Sparkles, QrCode, LayoutGrid, History, FileText } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { createClient } from '@/frontend/utils/supabase/client';
 import Skeleton from '@/frontend/components/ui/Skeleton';
@@ -9,7 +9,7 @@ import { Toast } from '@/frontend/components/ui/Toast';
 import SOPTemplateFormModal from './SOPTemplateFormModal';
 import SOPLayoutAnalyzerModal from './SOPLayoutAnalyzerModal';
 import SOPQRModal from './SOPQRModal';
-import { frequencyLabel, isDue } from './SOPCompletionHistory';
+import { frequencyLabel, isDue, fmt12h } from './SOPCompletionHistory';
 
 interface SOPTemplateManagerProps {
     propertyId?: string;
@@ -18,8 +18,8 @@ interface SOPTemplateManagerProps {
     userRole?: string;
     onSelectTemplate: (templateId: string) => void;
     onRefresh?: () => void;
-    activeView?: 'list' | 'history';
-    onViewChange?: (v: 'list' | 'history') => void;
+    activeView?: 'list' | 'history' | 'reports';
+    onViewChange?: (v: 'list' | 'history' | 'reports') => void;
 }
 
 const SOPTemplateManager: React.FC<SOPTemplateManagerProps> = ({ propertyId, propertyIds, isAdmin = false, onSelectTemplate, onRefresh, activeView = 'list', onViewChange }) => {
@@ -45,6 +45,11 @@ const SOPTemplateManager: React.FC<SOPTemplateManagerProps> = ({ propertyId, pro
     const dueStatusMap = useMemo(() => {
         const map: Record<string, { due: boolean; label: string }> = {};
         for (const t of templates) {
+            // Paused templates are never "due" — skip expensive calculation
+            if (!t.is_running) {
+                map[t.id] = { due: false, label: '' };
+                continue;
+            }
             const latestDone = (t.completions || [])
                 .filter((c: any) => c.status === 'completed')
                 .sort((a: any, b: any) => new Date(b.completed_at || b.completion_date).getTime() - new Date(a.completed_at || a.completion_date).getTime())[0];
@@ -213,6 +218,13 @@ const SOPTemplateManager: React.FC<SOPTemplateManagerProps> = ({ propertyId, pro
                                 <History size={9} />
                                 History
                             </button>
+                            <button
+                                onClick={() => onViewChange('reports')}
+                                className={`flex items-center gap-1 px-2 py-1 rounded-md font-black text-[8px] uppercase tracking-wider transition-all duration-200 ${activeView === 'reports' ? 'bg-primary text-white shadow-sm shadow-primary/20' : 'text-slate-400 hover:text-slate-600 hover:bg-slate-50'}`}
+                            >
+                                <FileText size={9} />
+                                Reports
+                            </button>
                         </div>
                     )}
                 </div>
@@ -253,15 +265,21 @@ const SOPTemplateManager: React.FC<SOPTemplateManagerProps> = ({ propertyId, pro
                             const totalPoints = template.items?.length || 0;
                             const progress = totalPoints > 0 ? (checkedCount / totalPoints) * 100 : 0;
                             const ds = dueStatusMap[template.id];
-                            const dsBadge = ds?.label ? (
+                            // Only show badge when actionable: overdue/due, countdown, or "starts at"
+                            // Hide "Window closed", "All done today", "Not started" etc.
+                            const showBadge = ds?.label && (
+                                ds.due ||
+                                ds.label.startsWith('Next in') ||
+                                ds.label.startsWith('Due in') ||
+                                ds.label.startsWith('Starts')
+                            );
+                            const dsBadge = showBadge ? (
                                 <span className={`px-1.5 py-0.5 rounded-full text-[8px] font-black uppercase tracking-widest whitespace-nowrap ${
                                     ds.due
                                         ? 'bg-rose-50 text-rose-600'
                                         : ds.label.startsWith('Next in') || ds.label.startsWith('Due in')
                                             ? 'bg-blue-50 text-blue-600'
-                                            : ds.label.startsWith('Starts')
-                                                ? 'bg-amber-50 text-amber-600'
-                                                : 'bg-slate-100 text-slate-500'
+                                            : 'bg-amber-50 text-amber-600'
                                 }`}>{ds.label}</span>
                             ) : null;
 
@@ -316,11 +334,10 @@ const SOPTemplateManager: React.FC<SOPTemplateManagerProps> = ({ propertyId, pro
                                                         {template.category || 'General'}
                                                     </span>
                                                     <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">
-                                                        {frequencyLabel(template.frequency)} · {totalPoints} pts
+                                                        {frequencyLabel(template.frequency)} 
+                                                        {(template.start_time || template.end_time) && ` (${template.start_time ? fmt12h(template.start_time) : '—'} – ${template.end_time ? fmt12h(template.end_time) : '—'})`}
+                                                        · {totalPoints} pts
                                                     </span>
-                                                    {(!template.assigned_to || template.assigned_to.length === 0) && (
-                                                        <span className="px-1.5 py-0.5 rounded-full text-[8px] font-black uppercase tracking-widest bg-emerald-50 text-emerald-600">Open</span>
-                                                    )}
                                                     {!template.is_running && (
                                                         <span className="px-1.5 py-0.5 rounded-full text-[8px] font-black uppercase tracking-widest bg-slate-100 text-slate-500">Paused</span>
                                                     )}
@@ -331,13 +348,15 @@ const SOPTemplateManager: React.FC<SOPTemplateManagerProps> = ({ propertyId, pro
                                                 <div className="flex gap-2 mb-2">
                                                     {template.is_running ? (
                                                         <>
-                                                            <button
-                                                                onClick={(e) => { e.stopPropagation(); onSelectTemplate(template.id); }}
-                                                                className="flex items-center gap-1.5 px-4 py-1.5 bg-slate-900 text-white rounded-lg font-black uppercase tracking-widest text-[10px] hover:bg-primary transition-all"
-                                                            >
-                                                                <Play size={10} />
-                                                                Run Now
-                                                            </button>
+                                                             {template.frequency === 'on_demand' && (
+                                                                <button
+                                                                    onClick={(e) => { e.stopPropagation(); onSelectTemplate(template.id); }}
+                                                                    className="flex items-center gap-1.5 px-4 py-1.5 bg-slate-900 text-white rounded-lg font-black uppercase tracking-widest text-[10px] hover:bg-primary transition-all"
+                                                                >
+                                                                    <Play size={10} />
+                                                                    Run Now
+                                                                </button>
+                                                             )}
                                                             {isAdmin && (
                                                                 <button
                                                                     onClick={(e) => { e.stopPropagation(); handleToggleRunning(template.id, false); }}
@@ -431,11 +450,10 @@ const SOPTemplateManager: React.FC<SOPTemplateManagerProps> = ({ propertyId, pro
                                                             {template.category || 'General'}
                                                         </span>
                                                         <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest">
-                                                            {frequencyLabel(template.frequency)} · {totalPoints} pts
+                                                            {frequencyLabel(template.frequency)}
+                                                            {(template.start_time || template.end_time) && ` (${template.start_time ? fmt12h(template.start_time) : '—'} – ${template.end_time ? fmt12h(template.end_time) : '—'})`}
+                                                            · {totalPoints} pts
                                                         </span>
-                                                        {(!template.assigned_to || template.assigned_to.length === 0) && (
-                                                            <span className="px-2 py-0.5 rounded-full text-[8px] font-black uppercase tracking-widest bg-emerald-50 text-emerald-600">Open</span>
-                                                        )}
                                                     </>
                                                 )}
                                                 {!template.is_running && (
@@ -447,13 +465,15 @@ const SOPTemplateManager: React.FC<SOPTemplateManagerProps> = ({ propertyId, pro
                                         <div className="flex items-center gap-2 flex-shrink-0">
                                             {template.is_running ? (
                                                 <>
-                                                    <button
-                                                        onClick={(e) => { e.stopPropagation(); onSelectTemplate(template.id); }}
-                                                        className="flex items-center gap-1 px-3 py-1.5 bg-slate-900 text-white rounded-lg hover:bg-primary transition-all font-black uppercase tracking-widest text-[9px]"
-                                                    >
-                                                        <Play size={10} />
-                                                        Run Now
-                                                    </button>
+                                                     {template.frequency === 'on_demand' && (
+                                                        <button
+                                                            onClick={(e) => { e.stopPropagation(); onSelectTemplate(template.id); }}
+                                                            className="flex items-center gap-1 px-3 py-1.5 bg-slate-900 text-white rounded-lg hover:bg-primary transition-all font-black uppercase tracking-widest text-[9px]"
+                                                        >
+                                                            <Play size={10} />
+                                                            Run Now
+                                                        </button>
+                                                     )}
                                                     {isAdmin && (
                                                         <button
                                                             onClick={(e) => { e.stopPropagation(); handleToggleRunning(template.id, false); }}

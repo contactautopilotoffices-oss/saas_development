@@ -23,6 +23,10 @@
     {
       "path": "/api/cron/generate-stock-reports",
       "schedule": "0 0 * * *"
+    },
+    {
+      "path": "/api/cron/daily-whatsapp-report",
+      "schedule": "30 18 * * *"
     }
   ]
 }

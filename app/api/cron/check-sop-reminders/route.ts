@@ -7,7 +7,12 @@ import { NotificationService } from '@/backend/services/NotificationService';
  * Runs every minute. Sends push notifications 30 minutes before a checklist is due.
  * Uses a 27–30 minute window to avoid duplicate notifications across cron runs.
  */
-export async function GET(_request: NextRequest) {
+export async function GET(request: NextRequest) {
+    const authHeader = request.headers.get('authorization');
+    if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
+        return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
     try {
         const now = new Date();
 
@@ -58,16 +63,21 @@ export async function GET(_request: NextRequest) {
                 : [];
 
             for (const userId of assignedUsers) {
-                await NotificationService.send({
-                    userId,
-                    propertyId: template.property_id,
-                    organizationId: template.organization_id ?? undefined,
-                    type: 'SOP_REMINDER',
-                    title: 'Checklist Due Soon',
-                    message: `"${template.title}" is due in 30 minutes.`,
-                    deepLink: `/properties/${template.property_id}/sop?via=notification`,
-                });
-                notificationsSent++;
+                try {
+                    await NotificationService.send({
+                        userId,
+                        propertyId: template.property_id,
+                        organizationId: template.organization_id ?? undefined,
+                        type: 'SOP_REMINDER',
+                        title: 'Checklist Due Soon',
+                        message: `"${template.title}" is due in 30 minutes.`,
+                        deepLink: `/properties/${template.property_id}/sop?via=notification`,
+                    });
+                    notificationsSent++;
+                } catch (notifErr: any) {
+                    // One failed notification must not stop the rest
+                    console.error(`[SOP Reminders] Failed to notify user ${userId} for template ${template.id}:`, notifErr.message);
+                }
             }
         }
 

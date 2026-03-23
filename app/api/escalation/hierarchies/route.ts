@@ -89,10 +89,30 @@ export async function POST(request: NextRequest) {
     if (!Array.isArray(levels) || levels.length === 0) {
       return NextResponse.json({ error: 'At least one escalation level is required' }, { status: 400 });
     }
+    // #15: cap levels to prevent runaway escalation chains
+    if (levels.length > 10) {
+      return NextResponse.json({ error: 'A hierarchy may have at most 10 escalation levels' }, { status: 400 });
+    }
 
-    // If marked as default, unset any existing default for this property/org scope
+    const adminClient = createAdminClient();
+
+    // #23: validate all provided employee_ids actually exist in the users table
+    const employeeIds = levels.map((l: any) => l.employee_id).filter(Boolean) as string[];
+    if (employeeIds.length > 0) {
+      const { data: foundUsers } = await adminClient
+        .from('users')
+        .select('id')
+        .in('id', employeeIds);
+      const foundIds = new Set((foundUsers || []).map((u: any) => u.id));
+      const missing = employeeIds.filter(id => !foundIds.has(id));
+      if (missing.length > 0) {
+        return NextResponse.json({ error: `Employee(s) not found: ${missing.join(', ')}` }, { status: 400 });
+      }
+    }
+
+    // #11: If marked as default, unset any existing default for this property/org scope.
+    // Use adminClient for both operations to bypass RLS and reduce the race window.
     if (is_default) {
-      const adminClient = createAdminClient();
       const unsetQuery = adminClient
         .from('escalation_hierarchies')
         .update({ is_default: false })
@@ -103,9 +123,9 @@ export async function POST(request: NextRequest) {
         : await unsetQuery.is('property_id', null);
     }
 
-    // Create the hierarchy
+    // Create the hierarchy using adminClient (consistent with the unset above)
     console.log('[Escalation Hierarchies] Creating hierarchy record...');
-    const { data: hierarchy, error: hierErr } = await supabase
+    const { data: hierarchy, error: hierErr } = await adminClient
       .from('escalation_hierarchies')
       .insert({
         organization_id: organizationId,
@@ -137,14 +157,20 @@ export async function POST(request: NextRequest) {
     }));
 
     console.log('[Escalation Hierarchies] Inserting levels...', levelRows);
-    const { error: levelsErr } = await supabase
+    const { error: levelsErr } = await adminClient
       .from('escalation_levels')
       .insert(levelRows);
 
     if (levelsErr) {
       console.error('[Escalation Hierarchies] Levels Insert Error:', levelsErr);
-      // Rollback: delete the hierarchy if levels failed
-      await supabase.from('escalation_hierarchies').delete().eq('id', hierarchy.id);
+      // #14: Rollback — log if cleanup itself fails so it surfaces in observability
+      const { error: rollbackErr } = await adminClient
+        .from('escalation_hierarchies')
+        .delete()
+        .eq('id', hierarchy.id);
+      if (rollbackErr) {
+        console.error('[Escalation Hierarchies] ROLLBACK FAILED — orphaned hierarchy:', hierarchy.id, rollbackErr.message);
+      }
       return NextResponse.json({ error: `Levels Create Error: ${levelsErr.message}` }, { status: 500 });
     }
 

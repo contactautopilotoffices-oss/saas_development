@@ -13,7 +13,12 @@ import { NotificationService } from '@/backend/services/NotificationService';
  * Deduplication: a row is inserted into `sop_missed_alerts(template_id, slot_time)`.
  * The unique constraint ensures each missed slot triggers at most one alert batch.
  */
-export async function GET(_request: NextRequest) {
+export async function GET(request: NextRequest) {
+    const authHeader = request.headers.get('authorization');
+    if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
+        return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
     try {
         const now = new Date();
         const windowStart = new Date(now.getTime() - 60_000); // 1-minute cron window
@@ -34,26 +39,24 @@ export async function GET(_request: NextRequest) {
         // ── 2. Latest completed completion per template ────────────────────────
         const { data: completions, error: cplError } = await supabaseAdmin
             .from('sop_completions')
-            .select('template_id, completed_at, completion_date')
+            .select('template_id, completed_at, completion_date, slot_time')
             .in('template_id', templates.map(t => t.id))
             .eq('status', 'completed')
             .order('completed_at', { ascending: false });
 
         if (cplError) throw cplError;
 
-        const lastCompletedMap: Record<string, Date> = {};
-        const lastDateMap: Record<string, string> = {};
+        const templateCompletionsMap: Record<string, any[]> = {};
         for (const c of completions || []) {
-            if (!lastCompletedMap[c.template_id]) {
-                if (c.completed_at) lastCompletedMap[c.template_id] = new Date(c.completed_at);
-                if (c.completion_date) lastDateMap[c.template_id] = c.completion_date;
-            }
+            if (!templateCompletionsMap[c.template_id]) templateCompletionsMap[c.template_id] = [];
+            templateCompletionsMap[c.template_id].push(c);
         }
 
         let alertsSent = 0;
 
         for (const template of templates) {
-            const missedSlots = getMissedSlots(template, lastCompletedMap[template.id] ?? null, now, windowStart);
+            // Check for missed slots in the last 24 hours (today and yesterday)
+            const missedSlots = getMissedSlots(template, templateCompletionsMap[template.id] || [], now, windowStart);
             if (missedSlots.length === 0) continue;
 
             for (const slotTime of missedSlots) {
@@ -118,18 +121,22 @@ export async function GET(_request: NextRequest) {
                     `"${template.title}" scheduled for ${slotLabel} was NOT completed on time. ` +
                     `Please complete it immediately or take corrective action.`;
 
-                // ── Send to all recipients ────────────────────────────────────
+                // ── Send to all recipients — isolate each so one failure doesn't block the rest ──
                 for (const userId of recipientIds) {
-                    await NotificationService.send({
-                        userId,
-                        propertyId: template.property_id,
-                        organizationId: template.organization_id ?? undefined,
-                        type: 'SOP_MISSED',
-                        title,
-                        message,
-                        deepLink: `/properties/${template.property_id}/sop?via=missed-alert`,
-                    });
-                    alertsSent++;
+                    try {
+                        await NotificationService.send({
+                            userId,
+                            propertyId: template.property_id,
+                            organizationId: template.organization_id ?? undefined,
+                            type: 'SOP_MISSED',
+                            title,
+                            message,
+                            deepLink: `/properties/${template.property_id}/sop?via=missed-alert`,
+                        });
+                        alertsSent++;
+                    } catch (notifErr: any) {
+                        console.error(`[SOP Missed] Failed to notify user ${userId} for template ${template.id}:`, notifErr.message);
+                    }
                 }
             }
         }
@@ -152,7 +159,7 @@ export async function GET(_request: NextRequest) {
  */
 function getMissedSlots(
     template: { frequency: string; start_time?: string | null; end_time?: string | null; started_at?: string | null },
-    lastCompleted: Date | null,
+    templateCompletions: any[],
     now: Date,
     windowStart: Date,
 ): Date[] {
@@ -170,22 +177,36 @@ function getMissedSlots(
     // ── Hourly + time window → slot-based schedule ───────────────────────────
     if (hourlyMatch && template.start_time && template.end_time) {
         const intervalHours = parseInt(hourlyMatch[1], 10);
-        const [sH, sM] = template.start_time.slice(0, 5).split(':').map(Number);
-        const startMins = sH * 60 + sM;
+        
+        // Build slots for BOTH today and yesterday to cover cross-day edge cases and missed cron runs
+        const days = [
+            new Date(now.getFullYear(), now.getMonth(), now.getDate()), // Today
+            new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1), // Yesterday
+        ];
 
-        // On the first day, first slot = max(start_time, started_at_time)
-        let effectiveStartMins = startMins;
-        if (startedToday && startedAt) {
-            const startedMins = startedAt.getHours() * 60 + startedAt.getMinutes();
-            if (startedMins > startMins) effectiveStartMins = startedMins;
-        }
+        for (const day of days) {
+            const slots = buildDaySlots(template.start_time, template.end_time, intervalHours, day, template.started_at);
+            
+            for (const slot of slots) {
+                // A slot is "missed" if we are past the slot start time + interval (i.e. slot window closed)
+                const slotEnd = new Date(slot.getTime() + intervalHours * 3_600_000);
+                if (slotEnd > now) continue; // window still open
 
-        const slots = buildTodaySlots(template.start_time, template.end_time, intervalHours, now, effectiveStartMins);
+                // Check if this specific slot was completed
+                const h = slot.getHours();
+                const m = slot.getMinutes();
+                const slotTimeStrShort = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+                const completionDateStr = slot.toISOString().slice(0, 10);
+                
+                const done = templateCompletions.some(c => 
+                    c.slot_time && 
+                    c.slot_time.startsWith(slotTimeStrShort) && 
+                    c.completion_date === completionDateStr
+                );
 
-        for (const slot of slots) {
-            if (slot < windowStart || slot > now) continue;
-            if (!lastCompleted || lastCompleted < slot) {
-                missed.push(slot);
+                if (!done) {
+                    missed.push(slot);
+                }
             }
         }
         return missed;
@@ -194,47 +215,70 @@ function getMissedSlots(
     // ── Hourly without time window ───────────────────────────────────────────
     if (hourlyMatch) {
         const intervalMs = parseInt(hourlyMatch[1], 10) * 3_600_000;
+        // Without a fixed window, we rely on the gap since the last completion
+        const lastCompleted = templateCompletions[0] ? new Date(templateCompletions[0].completed_at) : null;
         if (!lastCompleted) return []; // Never completed — skip first-ever miss
+
         const overdueSince = new Date(lastCompleted.getTime() + intervalMs);
-        if (overdueSince >= windowStart && overdueSince <= now) missed.push(overdueSince);
+        if (overdueSince <= now) {
+            // Only alert if it just happened in the current window to avoid notification flood
+            if (overdueSince >= windowStart) missed.push(overdueSince);
+        }
         return missed;
     }
 
     // ── Daily ─────────────────────────────────────────────────────────────────
-    // Missed = end_time passed without completion (user has whole window to complete)
+    // Missed = end_time passed without completion
     if (template.frequency === 'daily') {
-        const [eH, eM] = template.end_time
-            ? template.end_time.slice(0, 5).split(':').map(Number)
-            : [23, 59];
-        const missedAt = new Date(now.getFullYear(), now.getMonth(), now.getDate(), eH, eM, 0, 0);
+        const [eH, eM] = template.end_time ? template.end_time.slice(0, 5).split(':').map(Number) : [23, 59];
+        
+        const days = [
+            new Date(now.getFullYear(), now.getMonth(), now.getDate()), // Today
+            new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1), // Yesterday
+        ];
 
-        if (missedAt < windowStart || missedAt > now) return [];
+        for (const dayDate of days) {
+            const missedAt = new Date(dayDate.getFullYear(), dayDate.getMonth(), dayDate.getDate(), eH, eM, 0, 0);
+            if (missedAt > now) continue;
 
-        // Don't fire if template was started today after end_time (no chance to complete)
-        if (startedToday && startedAt) {
-            const startedMins = startedAt.getHours() * 60 + startedAt.getMinutes();
-            const endMins = eH * 60 + eM;
-            if (startedMins >= endMins) return []; // started after window closed today
+            // Don't fire if template was started on this day after end_time
+            const tmplStartedAt = template.started_at ? new Date(template.started_at) : null;
+            if (tmplStartedAt) {
+                const isSameDay = tmplStartedAt.toDateString() === dayDate.toDateString();
+                const startedMins = tmplStartedAt.getHours() * 60 + tmplStartedAt.getMinutes();
+                if (isSameDay && startedMins >= eH * 60 + eM) continue;
+                if (tmplStartedAt > missedAt) continue; // template didn't exist yet
+            }
+
+            const dayStr = dayDate.toISOString().slice(0, 10);
+            const doneToday = templateCompletions.some(c => c.completion_date === dayStr);
+            if (!doneToday) missed.push(missedAt);
         }
-
-        const todayStr = now.toISOString().slice(0, 10);
-        const lastDate = lastCompleted ? lastCompleted.toISOString().slice(0, 10) : null;
-        if (lastDate !== todayStr) missed.push(missedAt);
         return missed;
     }
 
     return missed;
 }
 
-/** Build today's scheduled slot array for hourly+window templates */
-function buildTodaySlots(startTime: string, endTime: string, intervalHours: number, now: Date, effectiveStartMins?: number): Date[] {
+/** Build scheduled slot array for hourly+window templates on a specific day */
+function buildDaySlots(startTime: string, endTime: string, intervalHours: number, day: Date, startedAtStr?: string | null): Date[] {
     const [sH, sM] = startTime.slice(0, 5).split(':').map(Number);
     const [eH, eM] = endTime.slice(0, 5).split(':').map(Number);
-    const startMins = effectiveStartMins ?? (sH * 60 + sM);
+    const startMins = sH * 60 + sM;
     const endMins = eH * 60 + eM;
     const slots: Date[] = [];
-    for (let t = startMins; t <= endMins; t += intervalHours * 60) {
-        slots.push(new Date(now.getFullYear(), now.getMonth(), now.getDate(), Math.floor(t / 60), t % 60, 0, 0));
+
+    const startedAt = startedAtStr ? new Date(startedAtStr) : null;
+
+    // Each slot starts at 't' and lasts 'intervalHours'.
+    // The last slot MUST start such that it ends at or before 'endMins'.
+    for (let t = startMins; t + intervalHours * 60 <= endMins; t += intervalHours * 60) {
+        const slotDate = new Date(day.getFullYear(), day.getMonth(), day.getDate(), Math.floor(t / 60), t % 60, 0, 0);
+
+        // Only include slots that start AFTER the template was started
+        if (startedAt && slotDate < startedAt) continue;
+
+        slots.push(slotDate);
     }
     return slots;
 }

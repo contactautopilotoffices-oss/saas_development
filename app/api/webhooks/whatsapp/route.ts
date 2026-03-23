@@ -569,13 +569,14 @@ async function processIncomingMessage(
 
 export async function POST(request: NextRequest) {
     try {
-        // Optional: validate webhook secret
-        if (WEBHOOK_SECRET) {
-            const sig = request.headers.get('x-webhook-signature') || request.headers.get('x-wasender-secret');
-            if (sig !== WEBHOOK_SECRET) {
-                console.warn('[WA WEBHOOK] Invalid webhook secret');
-                return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-            }
+        // Webhook secret is required — if env var is missing the server is misconfigured
+        if (!WEBHOOK_SECRET) {
+            console.error('[WA WEBHOOK] WASENDER_WEBHOOK_SECRET is not set — rejecting all requests');
+            return NextResponse.json({ error: 'Server misconfiguration' }, { status: 500 });
+        }
+        const sig = request.headers.get('x-webhook-signature') || request.headers.get('x-wasender-secret');
+        if (sig !== WEBHOOK_SECRET) {
+            return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
         }
 
         const body = await request.json();

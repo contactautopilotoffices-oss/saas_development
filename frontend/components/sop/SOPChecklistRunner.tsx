@@ -58,14 +58,28 @@ const SOPChecklistRunner: React.FC<SOPChecklistRunnerProps> = ({ templateId, com
         return nowMins > eH * 60 + eM;
     }, [template, liveNow]);
 
-    // Slot overdue = hourly interval elapsed since session opened, but no hard end_time
-    // This is a soft overdue — user can still submit
+    // Slot overdue = current time is past the end of the slot window that was active when
+    // the session was opened. Uses slot_time (stored on the completion row) if available,
+    // otherwise falls back to the completion's creation time as the slot start.
+    // This is a soft overdue — user can still submit.
     const isSlotOverdue = useMemo(() => {
         if (!template || isWindowClosed) return false;
         const hourlyMatch = template.frequency?.match(/^every_(\d+)_hours?$/);
-        if (hourlyMatch && completion?.created_at) {
-            const intervalMs = parseInt(hourlyMatch[1]) * 3_600_000;
-            return liveNow.getTime() - new Date(completion.created_at).getTime() > intervalMs;
+        if (hourlyMatch) {
+            const intervalH = parseInt(hourlyMatch[1]);
+            // Prefer slot_time (HH:MM) on the completion row; fall back to created_at
+            let slotStartMs: number;
+            if (completion?.slot_time) {
+                const [sH, sM] = completion.slot_time.slice(0, 5).split(':').map(Number);
+                const now = liveNow;
+                slotStartMs = new Date(now.getFullYear(), now.getMonth(), now.getDate(), sH, sM, 0, 0).getTime();
+            } else if (completion?.created_at) {
+                slotStartMs = new Date(completion.created_at).getTime();
+            } else {
+                return false;
+            }
+            const slotEndMs = slotStartMs + intervalH * 3_600_000;
+            return liveNow.getTime() > slotEndMs;
         }
         return false;
     }, [template, completion, liveNow, isWindowClosed]);
@@ -129,7 +143,7 @@ const SOPChecklistRunner: React.FC<SOPChecklistRunnerProps> = ({ templateId, com
             .subscribe();
 
         return () => { supabase.removeChannel(channel); };
-    }, [completion?.id, supabase]);
+    }, [completion?.id, supabase, onComplete]);
 
     useEffect(() => {
         const initializeChecklist = async () => {
@@ -151,6 +165,18 @@ const SOPChecklistRunner: React.FC<SOPChecklistRunnerProps> = ({ templateId, com
                 if (templateError || !templateData) {
                     const msg = templateError?.message || 'Template not found';
                     throw new Error(msg);
+                }
+
+                // Sort items by section_title and order_index
+                if (templateData.items) {
+                    templateData.items.sort((a: any, b: any) => {
+                        if (a.section_title !== b.section_title) {
+                            if (!a.section_title) return -1;
+                            if (!b.section_title) return 1;
+                            return a.section_title.localeCompare(b.section_title);
+                        }
+                        return (a.order_index || 0) - (b.order_index || 0);
+                    });
                 }
 
                 setTemplate(templateData); // Set template here
@@ -371,12 +397,12 @@ const SOPChecklistRunner: React.FC<SOPChecklistRunnerProps> = ({ templateId, com
             });
             if (!photoRes.ok) throw new Error('Failed to save photo URL');
 
-            setCompletion({
-                ...completion,
-                items: completion.items.map((i: any) =>
+            setCompletion((prev: any) => prev ? {
+                ...prev,
+                items: prev.items.map((i: any) =>
                     i.checklist_item_id === targetItemId ? { ...i, photo_url: data.url, checked_at: photoTakenAt } : i
                 ),
-            });
+            } : prev);
 
             setShowCameraModal(false);
             setActiveCameraItemId(null);
@@ -506,7 +532,7 @@ const SOPChecklistRunner: React.FC<SOPChecklistRunnerProps> = ({ templateId, com
         return hasInteraction;
     }).length;
 
-    const progress = (checkedCount / completion.items.length) * 100;
+    const progress = completion.items.length > 0 ? (checkedCount / completion.items.length) * 100 : 0;
 
 
     return (
@@ -585,8 +611,13 @@ const SOPChecklistRunner: React.FC<SOPChecklistRunnerProps> = ({ templateId, com
 
             {/* ── CHECKLIST ITEMS ── */}
             <div className="flex-1 overflow-y-auto pb-24">
-                {template.items.map((item: any, index: number) => {
-                    const completionItem = completion.items.find((c: any) => c.checklist_item_id === item.id);
+                {(() => {
+                    let currentSection: string | null = null;
+                    return template.items.map((item: any, index: number) => {
+                        const showSectionHeader = item.section_title !== currentSection;
+                        if (showSectionHeader) currentSection = item.section_title;
+
+                        const completionItem = completion.items.find((c: any) => c.checklist_item_id === item.id);
                     const isChecked = completionItem?.is_checked;
                     const hasValue = completionItem?.value || isChecked;
                     const value = itemValues[item.id];
@@ -613,14 +644,22 @@ const SOPChecklistRunner: React.FC<SOPChecklistRunnerProps> = ({ templateId, com
                         return `${h12}:${String(m).padStart(2, '0')} ${ampm}`;
                     };
 
-                    return (
-                        <motion.div
-                            key={item.id}
-                            initial={{ opacity: 0, y: 8 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            transition={{ delay: index * 0.05 }}
-                            className={`border-b border-slate-100 ${itemSlotLocked ? 'opacity-60' : ''}`}
-                        >
+                        return (
+                            <React.Fragment key={item.id}>
+                                {showSectionHeader && (
+                                    <div className="px-4 py-2 bg-slate-50 border-y border-slate-100 flex items-center gap-2">
+                                        <div className="w-1 h-3 bg-primary rounded-full" />
+                                        <span className="text-[10px] font-black uppercase tracking-widest text-slate-500">
+                                            {item.section_title || 'General'}
+                                        </span>
+                                    </div>
+                                )}
+                                <motion.div
+                                    initial={{ opacity: 0, y: 8 }}
+                                    animate={{ opacity: 1, y: 0 }}
+                                    transition={{ delay: index * 0.05 }}
+                                    className={`border-b border-slate-100 ${itemSlotLocked ? 'opacity-60' : ''}`}
+                                >
                             {/* Item title row */}
                             <div className="flex items-start gap-3 px-4 pt-4 pb-1">
                                 {item.type === 'checkbox' ? (
@@ -737,9 +776,11 @@ const SOPChecklistRunner: React.FC<SOPChecklistRunnerProps> = ({ templateId, com
                                     </button>
                                 </div>
                             </div>
-                        </motion.div>
-                    );
-                })}
+                                </motion.div>
+                            </React.Fragment>
+                        );
+                    });
+                })()}
             </div>
 
             {/* ── STICKY FOOTER ── */}

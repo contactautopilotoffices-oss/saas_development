@@ -28,8 +28,8 @@ const SOPTemplateFormModal: React.FC<SOPTemplateFormModalProps> = ({ isOpen, onC
         category: 'general',
         frequency: 'daily',
         assigned_to: [] as string[],
-        start_time: '',
-        end_time: '',
+        start_time: '09:00',
+        end_time: '17:00',
     });
 
 
@@ -94,8 +94,8 @@ const SOPTemplateFormModal: React.FC<SOPTemplateFormModalProps> = ({ isOpen, onC
                 category: initialData.category || 'general',
                 frequency: initialData.frequency || 'daily',
                 assigned_to: [],
-                start_time: '',
-                end_time: '',
+                start_time: '09:00',
+                end_time: '17:00',
             });
             setItems(
                 (initialData.items || []).map((item, idx) => ({

@@ -14,13 +14,12 @@ export default function ChecklistDeepLinkPage() {
     const completionId = searchParams.get('completionId') ?? undefined;
 
     const [template, setTemplate] = useState<any>(null);
-    const [user, setUser] = useState<any>(null);
     const [isAssigned, setIsAssigned] = useState(false);
     const [isLoading, setIsLoading] = useState(true);
     const [done, setDone] = useState(false);
     const [error, setError] = useState('');
 
-    const supabase = createClient();
+    const [supabase] = useState(() => createClient());
 
     useEffect(() => {
         const init = async () => {
@@ -30,7 +29,6 @@ export default function ChecklistDeepLinkPage() {
                 router.replace(`/login?returnUrl=/checklist/${templateId}`);
                 return;
             }
-            setUser(currentUser);
 
             // Fetch template
             const { data: tmpl, error: tmplErr } = await supabase
@@ -48,6 +46,23 @@ export default function ChecklistDeepLinkPage() {
 
             setTemplate(tmpl);
 
+            // Verify completionId (if provided) actually belongs to this template.
+            // Prevents an attacker substituting a completionId from a different template via URL manipulation.
+            if (completionId) {
+                const { data: completionCheck } = await supabase
+                    .from('sop_completions')
+                    .select('id')
+                    .eq('id', completionId)
+                    .eq('template_id', templateId)
+                    .maybeSingle();
+
+                if (!completionCheck) {
+                    setError('Checklist session not found or does not match this template.');
+                    setIsLoading(false);
+                    return;
+                }
+            }
+
             // Check if user is assigned or is admin
             const { data: membership } = await supabase
                 .from('property_memberships')
@@ -58,7 +73,9 @@ export default function ChecklistDeepLinkPage() {
                 .maybeSingle();
 
             const isAdmin = ['property_admin', 'org_admin', 'org_super_admin', 'master_admin'].includes(membership?.role || '');
-            const assignedToMe = Array.isArray(tmpl.assigned_to) && tmpl.assigned_to.includes(currentUser.id);
+            // Empty assigned_to means open to all staff (consistent with SOPDueAlerts / SOPCompletionHistory)
+            const isOpenToAll = !Array.isArray(tmpl.assigned_to) || tmpl.assigned_to.length === 0;
+            const assignedToMe = isOpenToAll || tmpl.assigned_to.includes(currentUser.id);
 
             setIsAssigned(isAdmin || assignedToMe);
             setIsLoading(false);

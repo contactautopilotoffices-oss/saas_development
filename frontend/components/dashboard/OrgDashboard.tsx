@@ -15,7 +15,7 @@ import { createClient } from '@/frontend/utils/supabase/client';
 import { useAuth } from '@/frontend/context/AuthContext';
 import { useRouter } from 'next/navigation';
 import SignOutModal from '@/frontend/components/ui/SignOutModal';
-import VMSOrgSummary from '@/frontend/components/vms/VMSOrgSummary';
+import VMSOrgVisitorDashboard from '@/frontend/components/vms/VMSOrgVisitorDashboard';
 import { useTheme } from '@/frontend/context/ThemeContext';
 import { Sun, Moon } from 'lucide-react';
 
@@ -247,7 +247,7 @@ const OrgDashboard = ({ orgId }: { orgId: string }) => {
                             {activeTab === 'users' && <UserManagement orgId={orgId} />}
 
                             {activeTab === 'vendors' && <VendorSummary orgId={orgId} />}
-                            {activeTab === 'visitors' && <VMSOrgSummary orgId={orgId} />}
+                            {activeTab === 'visitors' && <VMSOrgVisitorDashboard orgId={orgId} />}
                             {activeTab === 'analytics' && <SLAAnalytics />}
                             {activeTab === 'super-tenants' && <SuperTenantOrgTab orgId={orgId} properties={properties} />}
                         </motion.div>

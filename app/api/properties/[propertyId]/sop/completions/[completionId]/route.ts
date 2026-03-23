@@ -3,13 +3,20 @@ import { createClient } from '@/frontend/utils/supabase/server';
 import { supabaseAdmin } from '@/backend/lib/supabase/admin';
 
 export async function GET(
-    _request: NextRequest,
+    request: NextRequest,
     { params }: { params: Promise<{ propertyId: string; completionId: string }> }
 ) {
-    const { completionId } = await params;
+    const { propertyId, completionId } = await params;
+    const supabase = await createClient();
 
     try {
-        // Use admin client to bypass RLS — runner must always be able to read its own session
+        // Auth check — GET was previously unauthenticated
+        const { data: { user }, error: authError } = await supabase.auth.getUser();
+        if (authError || !user) {
+            return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+        }
+
+        // IDOR guard: fetch completion scoped to this property only
         const { data: completion, error } = await supabaseAdmin
             .from('sop_completions')
             .select(`
@@ -23,14 +30,14 @@ export async function GET(
                 )
             `)
             .eq('id', completionId)
+            .eq('property_id', propertyId)
             .single();
 
-        if (error) {
+        if (error || !completion) {
             return NextResponse.json({ error: 'Completion not found' }, { status: 404 });
         }
 
         // ── Self-heal: insert any missing sop_completion_items rows ──────────
-        // This handles completions created before the template had checklist items.
         const templateItems: any[] = completion.template?.items || [];
         const existingIds = new Set((completion.items || []).map((i: any) => i.checklist_item_id));
         const missing = templateItems.filter((ti: any) => !existingIds.has(ti.id));
@@ -44,7 +51,6 @@ export async function GET(
                     is_checked: false,
                 })));
 
-            // Re-fetch with healed items
             const { data: healed } = await supabaseAdmin
                 .from('sop_completions')
                 .select(`
@@ -58,6 +64,7 @@ export async function GET(
                     )
                 `)
                 .eq('id', completionId)
+                .eq('property_id', propertyId)
                 .single();
 
             return NextResponse.json({ success: true, completion: healed });
@@ -85,17 +92,28 @@ export async function PUT(
             return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
         }
 
+        // IDOR guard: confirm this completion belongs to this property before any mutation
+        const { data: existing } = await supabaseAdmin
+            .from('sop_completions')
+            .select('id, property_id')
+            .eq('id', completionId)
+            .eq('property_id', propertyId)
+            .maybeSingle();
+
+        if (!existing) {
+            return NextResponse.json({ error: 'Completion not found' }, { status: 404 });
+        }
+
         const body = await request.json();
         const { status, notes, item } = body;
 
-        // Update completion status/notes
         if (status || notes !== undefined) {
             const updates: any = {};
             if (status) updates.status = status;
             if (notes !== undefined) updates.notes = notes;
             if (status === 'completed') updates.completed_at = new Date().toISOString();
 
-            const { error: updateError } = await supabase
+            const { error: updateError } = await supabaseAdmin
                 .from('sop_completions')
                 .update(updates)
                 .eq('id', completionId)
@@ -106,38 +124,39 @@ export async function PUT(
             }
         }
 
-        // Update individual item if provided (use admin to bypass RLS)
         if (item) {
-            const { completionItemId, is_checked, comment, photo_url, value } = item;
+            const { completionItemId, is_checked, comment, photo_url, video_url, value } = item;
+
+            if (!completionItemId) {
+                return NextResponse.json({ error: 'completionItemId is required in item payload' }, { status: 400 });
+            }
 
             const itemUpdates: any = {};
             if (is_checked !== undefined) itemUpdates.is_checked = is_checked;
             if (comment !== undefined) itemUpdates.comment = comment;
             if (photo_url !== undefined) itemUpdates.photo_url = photo_url;
+            if (video_url !== undefined) itemUpdates.video_url = video_url;
             if (value !== undefined) itemUpdates.value = value;
             if (is_checked) {
                 itemUpdates.checked_at = new Date().toISOString();
                 itemUpdates.checked_by = user.id;
             }
 
+            // Scope the item update to this completion to prevent cross-completion tampering
             const { error: itemError } = await supabaseAdmin
                 .from('sop_completion_items')
                 .update(itemUpdates)
-                .eq('id', completionItemId);
+                .eq('id', completionItemId)
+                .eq('completion_id', completionId);
 
             if (itemError) {
                 return NextResponse.json({ error: itemError.message }, { status: 500 });
             }
         }
 
-        // Fetch updated completion (admin bypasses RLS)
         const { data: completion } = await supabaseAdmin
             .from('sop_completions')
-            .select(`
-                *,
-                template:sop_templates(title, frequency),
-                items:sop_completion_items(*)
-            `)
+            .select(`*, template:sop_templates(title, frequency), items:sop_completion_items(*)`)
             .eq('id', completionId)
             .single();
 

@@ -60,8 +60,8 @@ export async function PUT(
                 ...(frequency && { frequency }),
                 ...(assigned_to !== undefined && { assigned_to }),
                 ...(is_active !== undefined && { is_active }),
-                start_time: start_time || null,
-                end_time: end_time || null,
+                start_time: start_time || '09:00',
+                end_time: end_time || '17:00',
                 updated_at: new Date().toISOString(),
             })
             .eq('id', templateId)

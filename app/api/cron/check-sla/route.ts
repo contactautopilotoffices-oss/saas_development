@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@/frontend/utils/supabase/server';
+import { supabaseAdmin } from '@/backend/lib/supabase/admin';
 
 /**
  * GET /api/cron/check-sla
@@ -8,15 +8,13 @@ import { createClient } from '@/frontend/utils/supabase/server';
  * Intended to be called by an external cron service (e.g., Vercel Cron, GitHub Actions).
  */
 export async function GET(request: NextRequest) {
+    const authHeader = request.headers.get('authorization');
+    if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
+        return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
     try {
-        const supabase = await createClient();
-
-        // 1. Fetch tickets nearing SLA (Mock logic: 'in_progress' tickets created > 2 hours ago for this demo)
-        // In reality, this would check `due_at` vs `now()`. 
-        // For this demo, let's find tickets that are 'in_progress' and NOT yet notified to avoid spam.
-        // We'll calculate "due_at" dynamically (e.g. 4 hours from creation) just for the simulation.
-
-        const { data: tickets, error } = await supabase
+        const { data: tickets, error } = await supabaseAdmin
             .from('tickets')
             .select(`
                 id, ticket_number, title, created_at, assigned_to
@@ -29,17 +27,35 @@ export async function GET(request: NextRequest) {
         const notifications = [];
         const now = new Date();
 
+        // Build dedup set: ticket IDs that already received an SLA warning in the last 25 minutes.
+        // This prevents the per-minute cron from spamming the same alert every tick.
+        const candidateTicketIds = (tickets || [])
+            .filter(t => {
+                const dueAt = new Date(new Date(t.created_at).getTime() + 4 * 60 * 60 * 1000);
+                const mins = (dueAt.getTime() - now.getTime()) / 60000;
+                return mins > 0 && mins <= 30;
+            })
+            .map(t => t.id);
+
+        const alreadyNotifiedIds = new Set<string>();
+        if (candidateTicketIds.length > 0) {
+            const dedupCutoff = new Date(now.getTime() - 25 * 60_000).toISOString();
+            const { data: recentNotifs } = await supabaseAdmin
+                .from('notifications')
+                .select('entity_id')
+                .eq('type', 'sla_warning')
+                .in('entity_id', candidateTicketIds)
+                .gte('created_at', dedupCutoff);
+            for (const n of recentNotifs || []) alreadyNotifiedIds.add(n.entity_id);
+        }
+
         for (const ticket of tickets || []) {
             const createdAt = new Date(ticket.created_at);
             const dueAt = new Date(createdAt.getTime() + 4 * 60 * 60 * 1000); // Mock 4h SLA
             const timeRemaining = dueAt.getTime() - now.getTime();
             const minutesRemaining = Math.floor(timeRemaining / 60000);
 
-            // Notify if between 0 and 30 mins remaining
-            // For demo purposes, we might relax this to just "active tickets" to show it working
-            if (minutesRemaining > 0 && minutesRemaining <= 30) {
-                // Check if already notified recently (omitted for MVP simplicity)
-
+            if (minutesRemaining > 0 && minutesRemaining <= 30 && !alreadyNotifiedIds.has(ticket.id)) {
                 notifications.push({
                     type: 'sla_warning',
                     recipient_role: 'MST',
@@ -52,7 +68,7 @@ export async function GET(request: NextRequest) {
         }
 
         if (notifications.length > 0) {
-            const { error: insertError } = await supabase
+            const { error: insertError } = await supabaseAdmin
                 .from('notifications')
                 .insert(notifications);
 

@@ -68,23 +68,42 @@ export async function GET(
             startDate.setHours(0, 0, 0, 0);
         }
 
-        // Fetch all tickets for these properties
-        let query = supabase
-            .from('tickets')
-            .select('id, property_id, status, priority, sla_breached, created_at, resolved_at')
-            .in('property_id', propertyIds);
+        // ── Paginate through all tickets to bypass Supabase's server-side max_rows cap ──
+        // Supabase PostgREST enforces a max_rows limit (default 1000) server-side that
+        // cannot be overridden by client .limit() calls. Pagination with .range() is the
+        // only reliable way to fetch all rows regardless of org size.
+        const PAGE_SIZE = 1000;
+        let allTickets: any[] = [];
+        let from = 0;
 
-        if (period !== 'all') {
-            query = query.gte('created_at', startDate.toISOString());
+        while (true) {
+            let pageQuery = supabase
+                .from('tickets')
+                .select('id, property_id, status, priority, sla_breached, created_at, resolved_at')
+                .in('property_id', propertyIds)
+                .range(from, from + PAGE_SIZE - 1);
+
+            if (period !== 'all') {
+                pageQuery = pageQuery.gte('created_at', startDate.toISOString());
+            }
+
+            const { data: page, error: pageErr } = await pageQuery;
+            if (pageErr) break;
+            if (!page || page.length === 0) break;
+
+            allTickets = allTickets.concat(page);
+
+            // If we got fewer rows than the page size, we've reached the end
+            if (page.length < PAGE_SIZE) break;
+            from += PAGE_SIZE;
         }
 
-        const { data: tickets } = await query;
+        const tickets = allTickets;
 
         // Calculate overall stats
         const totalTickets = tickets?.length || 0;
         const resolvedStatuses = ['resolved', 'closed'];
 
-        // Open/In Progress combined should equal all non-resolved
         const openTickets = tickets?.filter(t => t.status === 'open' || t.status === 'waitlist' || t.status === 'blocked').length || 0;
         const waitlist = tickets?.filter(t => t.status === 'waitlist').length || 0;
         const inProgress = tickets?.filter(t => t.status === 'assigned' || t.status === 'in_progress' || t.status === 'paused' || t.status === 'work_started').length || 0;
@@ -99,8 +118,8 @@ export async function GET(
         let totalResolutionMs = 0;
         resolvedTickets.forEach(t => {
             const created = new Date(t.created_at);
-            const resolved = new Date(t.resolved_at);
-            totalResolutionMs += resolved.getTime() - created.getTime();
+            const resolvedAt = new Date(t.resolved_at);
+            totalResolutionMs += resolvedAt.getTime() - created.getTime();
         });
         const avgResolutionHours = resolvedTickets.length > 0
             ? Math.round(totalResolutionMs / resolvedTickets.length / (1000 * 60 * 60))

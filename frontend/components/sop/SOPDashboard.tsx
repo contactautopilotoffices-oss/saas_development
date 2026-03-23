@@ -10,6 +10,7 @@ import SOPTemplateManager from './SOPTemplateManager';
 import SOPCompletionHistory from './SOPCompletionHistory';
 import SOPChecklistRunner from './SOPChecklistRunner';
 import SOPCompletionDetail from './SOPCompletionDetail';
+import SOPReportSection from './SOPReportSection';
 import UniversalQRScannerModal from '@/frontend/components/shared/UniversalQRScannerModal';
 
 interface SOPDashboardProps {
@@ -22,7 +23,7 @@ interface SOPDashboardProps {
 const SOPDashboard: React.FC<SOPDashboardProps> = ({ propertyId, propertyIds, propertySelector, headerRight }) => {
     const isMultiProperty = !!propertyIds && propertyIds.length > 0;
     const { membership } = useAuth();
-    const [activeView, setActiveView] = useState<'list' | 'runner' | 'history' | 'detail'>('list');
+    const [activeView, setActiveView] = useState<'list' | 'runner' | 'history' | 'detail' | 'reports'>('list');
     const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null);
     const [selectedCompletionId, setSelectedCompletionId] = useState<string | null>(null);
     const [viewingCompletionId, setViewingCompletionId] = useState<string | null>(null);
@@ -160,7 +161,14 @@ const SOPDashboard: React.FC<SOPDashboardProps> = ({ propertyId, propertyIds, pr
                                             setActiveView('detail');
                                         }}
                                         activeView="history"
-                                        onViewChange={isAdmin ? (v) => setActiveView(v) : undefined}
+                                        onViewChange={isAdmin ? (v) => setActiveView(v as any) : undefined}
+                                    />
+                                )}
+
+                                {activeView === 'reports' && isAdmin && (
+                                    <SOPReportSection 
+                                        propertyId={propertyId!}
+                                        isAdmin={isAdmin}
                                     />
                                 )}
 
@@ -200,10 +208,21 @@ const SOPDashboard: React.FC<SOPDashboardProps> = ({ propertyId, propertyIds, pr
 
             {showScanner && (
                 <UniversalQRScannerModal
-                    onResult={(result) => {
+                    onResult={async (result) => {
                         setShowScanner(false);
                         if (result.type === 'checklist') {
-                            handleStartChecklist(result.templateId);
+                            // Find/create session via API — dedup returns existing in_progress if any
+                            try {
+                                const res = await fetch(`/api/properties/${propertyId}/sop/completions`, {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({ templateId: result.templateId }),
+                                });
+                                const data = await res.json();
+                                handleStartChecklist(result.templateId, data.completion?.id || undefined);
+                            } catch {
+                                handleStartChecklist(result.templateId);
+                            }
                         }
                         // stock/barcode types not applicable in checklist context
                     }}

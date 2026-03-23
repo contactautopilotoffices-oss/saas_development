@@ -4,7 +4,7 @@ import React, { useState, useEffect, useMemo, useCallback, useRef, memo } from '
 import {
     LayoutDashboard, Users, Ticket, Settings, UserCircle, UsersRound,
     Search, Plus, Filter, LogOut, ChevronRight, MapPin, Building2,
-    Calendar, CheckCircle2, AlertCircle, Clock, Coffee, IndianRupee, FileDown, Fuel, Store, Activity, Upload, FileBarChart, Menu, X, Zap, RefreshCw, Database,
+    Calendar, CheckCircle2, AlertCircle, Clock, Coffee, IndianRupee, FileDown, Fuel, Store, Activity, Upload, FileBarChart, Menu, X, Zap, RefreshCw,
     Package, ClipboardCheck, Scan, ChevronDown, Check, GitBranch
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -13,7 +13,6 @@ import { useAuth } from '@/frontend/context/AuthContext';
 import { useDataCache } from '@/frontend/context/DataCacheContext';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import UserDirectory from './UserDirectory';
-import ESSLRawDataView from './ESSLRawDataView';
 import SignOutModal from '@/frontend/components/ui/SignOutModal';
 import DieselAnalyticsDashboard from '@/frontend/components/diesel/DieselAnalyticsDashboard';
 import DieselStaffDashboard from '@/frontend/components/diesel/DieselStaffDashboard';
@@ -40,7 +39,7 @@ import EscalationHierarchyBuilder from '@/frontend/components/escalation/Escalat
 import UniversalQRScannerModal, { QRScanResult } from '@/frontend/components/shared/UniversalQRScannerModal';
 
 // Types
-type Tab = 'overview' | 'requests' | 'reports' | 'users' | 'visitors' | 'rooms' | 'diesel' | 'diesel_analytics' | 'electricity' | 'electricity_analytics' | 'cafeteria' | 'settings' | 'profile' | 'units' | 'vendor_revenue' | 'stock' | 'checklist' | 'escalation' | 'essl';
+type Tab = 'overview' | 'requests' | 'reports' | 'users' | 'visitors' | 'rooms' | 'diesel' | 'diesel_analytics' | 'electricity' | 'electricity_analytics' | 'cafeteria' | 'settings' | 'profile' | 'units' | 'vendor_revenue' | 'stock' | 'checklist' | 'escalation';
 
 interface Property {
     id: string;
@@ -123,7 +122,7 @@ const PropertyAdminDashboard = () => {
     // Restore tab from URL
     useEffect(() => {
         const tab = searchParams.get('tab');
-        if (tab && ['overview', 'requests', 'reports', 'users', 'visitors', 'diesel', 'diesel_analytics', 'electricity', 'electricity_analytics', 'cafeteria', 'settings', 'profile', 'units', 'vendor_revenue', 'stock', 'checklist', 'essl'].includes(tab)) {
+        if (tab && ['overview', 'requests', 'reports', 'users', 'visitors', 'diesel', 'diesel_analytics', 'electricity', 'electricity_analytics', 'cafeteria', 'settings', 'profile', 'units', 'vendor_revenue', 'stock', 'checklist'].includes(tab)) {
             setActiveTab(tab as Tab);
         }
         const filter = searchParams.get('filter');
@@ -460,16 +459,6 @@ const PropertyAdminDashboard = () => {
                                 <Coffee className="w-4 h-4" />
                                 Cafeteria Revenue
                             </button>
-                            <button
-                                onClick={() => handleTabChange('essl')}
-                                className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 font-bold text-sm ${activeTab === 'essl'
-                                    ? 'bg-primary text-text-inverse shadow-sm'
-                                    : 'text-text-secondary hover:bg-muted hover:text-text-primary'
-                                    }`}
-                            >
-                                <Database className="w-4 h-4" />
-                                eSSL Raw Data
-                            </button>
                         </div>
                     </div>
 
@@ -704,7 +693,6 @@ const PropertyAdminDashboard = () => {
                                 propertyId={property.id}
                             />
                         )}
-                        {activeTab === 'essl' && <ESSLRawDataView />}
                         {activeTab === 'settings' && <SettingsView />}
                         {activeTab === 'profile' && (
                             <div className="flex justify-center items-start py-8">
@@ -899,7 +887,8 @@ const OverviewTab = memo(function OverviewTab({
 }) {
     const { getCachedData, setCachedData } = useDataCache();
     const [timePeriod, setTimePeriod] = useState<'today' | 'month' | 'all'>('all');
-    const fetchKey = `${propertyId}-${statsVersion}-${timePeriod}`;
+    // v2 prefix busts any pre-API-migration cached data that had 0/0 for visitors
+    const fetchKey = `v2-${propertyId}-${statsVersion}-${timePeriod}`;
     const initialCached = useMemo(() => getCachedData(fetchKey), [fetchKey, getCachedData]);
     const supabase = useMemo(() => createClient(), []);
     const hasFetched = useRef(false);
@@ -926,7 +915,8 @@ const OverviewTab = memo(function OverviewTab({
     const [isLoading, setIsLoading] = useState(!initialCached);
 
     useEffect(() => {
-        const fetchKey = `${propertyId}-${statsVersion}-${timePeriod}`;
+        // v2 prefix busts any pre-API-migration cached data that had 0/0 for visitors
+    const fetchKey = `v2-${propertyId}-${statsVersion}-${timePeriod}`;
 
         // Prevent duplicate fetches for the same key
         if (lastFetchKey.current === fetchKey && hasFetched.current) {
@@ -989,49 +979,41 @@ const OverviewTab = memo(function OverviewTab({
                     supabase.from('tickets').select('id, title, status, created_at, sla_paused').eq('property_id', propertyId).order('created_at', { ascending: false }).limit(5),
                 ]);
 
-                // --- Diesel, VMS, Vendors (all in parallel) ---
+                // --- Electricity, VMS, Vendors (all in parallel via APIs) ---
                 const today = new Date().toISOString().split('T')[0];
-                const monthStartRaw = new Date();
-                monthStartRaw.setDate(1);
 
-                let vmsQuery = supabase.from('visitor_logs').select('status').eq('property_id', propertyId);
-                let vendorQuery = supabase.from('vendors').select('id, commission_rate, vendor_daily_revenue(revenue_amount, revenue_date)').eq('property_id', propertyId);
+                const apiPeriod = timePeriod; // 'today' | 'month' | 'all'
 
-                if (timePeriod === 'today') {
-                    vmsQuery = vmsQuery.gte('checkin_time', today);
-                } else if (timePeriod === 'month') {
-                    vmsQuery = vmsQuery.gte('checkin_time', monthStart);
-                }
-
-                const [electricityRes, vmsRes, vendorRes] = await Promise.all([
+                const [electricityRes, vmsApiRes, vendorApiRes] = await Promise.all([
                     supabase.from('electricity_readings').select('computed_units, reading_date').eq('property_id', propertyId).gte('reading_date', monthStart),
-                    vmsQuery,
-                    vendorQuery,
+                    fetch(`/api/properties/${propertyId}/vms-summary?period=${apiPeriod}`),
+                    fetch(`/api/properties/${propertyId}/vendor-summary?period=${apiPeriod}`),
                 ]);
 
                 // Process electricity
                 const monthUnits = electricityRes.data?.reduce((acc: number, r: any) => acc + (r.computed_units || 0), 0) || 0;
                 const todayUnits = electricityRes.data?.filter((r: any) => r.reading_date === today).reduce((acc: number, r: any) => acc + (r.computed_units || 0), 0) || 0;
 
-                // Process VMS
-                const checkedInCount = vmsRes.data?.filter((v: any) => v.status === 'checked_in').length || 0;
-                const checkedOutCount = vmsRes.data?.filter((v: any) => v.status === 'checked_out').length || 0;
+                // Process VMS from API
+                let vmsData: any = null;
+                if (vmsApiRes.ok) {
+                    vmsData = await vmsApiRes.json();
+                } else {
+                    console.error('[Dashboard] VMS API failed:', vmsApiRes.status, await vmsApiRes.text());
+                }
+                const checkedInCount = vmsData?.checked_in ?? 0;
+                const checkedOutCount = vmsData?.checked_out ?? 0;
+                const totalVisitors = vmsData?.total_visitors ?? 0;
 
-                // Process Vendors
-                let totalRev = 0, totalComm = 0;
-                vendorRes.data?.forEach(v => {
-                    v.vendor_daily_revenue?.forEach((r: any) => {
-                        let include = false;
-                        if (timePeriod === 'today' && r.revenue_date === today) include = true;
-                        else if (timePeriod === 'month' && r.revenue_date >= monthStart) include = true;
-                        else if (timePeriod === 'all') include = true;
-
-                        if (include) {
-                            totalRev += r.revenue_amount || 0;
-                            totalComm += (r.revenue_amount || 0) * ((v.commission_rate || 0) / 100);
-                        }
-                    });
-                });
+                // Process Vendors from API
+                let vendorData: any = null;
+                if (vendorApiRes.ok) {
+                    vendorData = await vendorApiRes.json();
+                } else {
+                    console.error('[Dashboard] Vendor API failed:', vendorApiRes.status, await vendorApiRes.text());
+                }
+                const totalRev = vendorData?.total_revenue ?? 0;
+                const totalComm = vendorData?.total_commission ?? 0;
 
                 const result = {
                     ticketStats: {
@@ -1046,8 +1028,8 @@ const OverviewTab = memo(function OverviewTab({
                     timePeriod: timePeriod,
                     recentTickets: recentsRes.data || [],
                     electricityStats: { total_units_month: Math.round(monthUnits), total_units_today: Math.round(todayUnits) },
-                    vmsStats: { total_visitors_today: vmsRes.data?.length || 0, checked_in: checkedInCount, checked_out: checkedOutCount },
-                    vendorStats: { total_revenue: totalRev, total_commission: totalComm, total_vendors: vendorRes.data?.length || 0 },
+                    vmsStats: { total_visitors_today: totalVisitors, checked_in: checkedInCount, checked_out: checkedOutCount },
+                    vendorStats: { total_revenue: totalRev, total_commission: totalComm, total_vendors: vendorData?.total_vendors || 0 },
                     timestamp: Date.now()
                 };
 

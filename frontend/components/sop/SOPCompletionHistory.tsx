@@ -4,7 +4,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { createClient } from '@/frontend/utils/supabase/client';
 import Skeleton from '@/frontend/components/ui/Skeleton';
 import { motion, AnimatePresence } from 'framer-motion';
-import { History, User, Calendar, CheckCircle2, Clock, Trash2, Play, Eye, AlertTriangle, Square, LayoutGrid, Timer, XCircle, ChevronDown, ChevronUp } from 'lucide-react';
+import { History, User, Calendar, CheckCircle2, Clock, Trash2, Play, Eye, AlertTriangle, Square, LayoutGrid, Timer, XCircle, ChevronDown, ChevronUp, Download, FileText } from 'lucide-react';
 
 interface SOPCompletionHistoryProps {
     propertyId?: string;
@@ -13,8 +13,8 @@ interface SOPCompletionHistoryProps {
     onViewDetail: (completionId: string) => void;
     isAdmin?: boolean;
     userRole?: string;
-    activeView?: 'list' | 'history';
-    onViewChange?: (v: 'list' | 'history') => void;
+    activeView?: 'list' | 'history' | 'reports';
+    onViewChange?: (v: 'list' | 'history' | 'reports') => void;
 }
 
 /** Parse every_N_hour(s) frequency → interval in hours, or null */
@@ -43,7 +43,7 @@ function fmtRemaining(ms: number): string {
 }
 
 /** Format HH:MM (24h) → "H:MM AM/PM" */
-function fmt12h(hhmm: string): string {
+export function fmt12h(hhmm: string): string {
     const [h, m] = hhmm.slice(0, 5).split(':').map(Number);
     const ampm = h >= 12 ? 'PM' : 'AM';
     const h12 = h === 0 ? 12 : h > 12 ? h - 12 : h;
@@ -78,8 +78,9 @@ function getCompletionSlot(
     return `${fmt(slotStartMins)} – ${fmt(slotEndMins)}`;
 }
 
-/** Returns the slot start as "HH:MM" for the current moment, or null for non-hourly templates. */
-function computeCurrentSlotStart(frequency: string, startTime: string | null, now: Date): string | null {
+/** Returns the slot start as "HH:MM" for the current moment, or null for non-hourly templates.
+ *  Respects endTime — if we're past the last valid slot, returns null. */
+function computeCurrentSlotStart(frequency: string, startTime: string | null, now: Date, endTime?: string | null): string | null {
     const intervalH = parseHourlyInterval(frequency);
     if (!intervalH || !startTime) return null;
     const [sH, sM] = startTime.slice(0, 5).split(':').map(Number);
@@ -87,7 +88,23 @@ function computeCurrentSlotStart(frequency: string, startTime: string | null, no
     const nowMins = now.getHours() * 60 + now.getMinutes();
     const elapsed = nowMins - startMins;
     if (elapsed < 0) return null;
-    const slotStartMins = startMins + Math.floor(elapsed / (intervalH * 60)) * intervalH * 60;
+
+    // Compute the raw slot start
+    let slotStartMins = startMins + Math.floor(elapsed / (intervalH * 60)) * intervalH * 60;
+
+    // Clamp to the last valid slot: a slot is valid only if its END fits within endTime
+    if (endTime) {
+        const [eH, eM] = endTime.slice(0, 5).split(':').map(Number);
+        const endMins = eH * 60 + eM;
+        // Find the last valid slot start (whose end <= endMins)
+        const lastValidSlotStart = startMins + Math.floor((endMins - startMins - intervalH * 60) / (intervalH * 60)) * intervalH * 60;
+        if (lastValidSlotStart < startMins) return null; // no valid slots at all
+        if (slotStartMins > lastValidSlotStart) {
+            // We're past the last valid slot — window is effectively closed
+            return null;
+        }
+    }
+
     const h = Math.floor(slotStartMins / 60) % 24;
     const mn = slotStartMins % 60;
     return `${String(h).padStart(2, '0')}:${String(mn).padStart(2, '0')}`;
@@ -145,8 +162,9 @@ export function isDue(
             : startMins;
 
         // Build today's scheduled slots from effective start
+        // Only create slots whose window (start → start+interval) fits within end_time
         const todaySlots: Date[] = [];
-        for (let t = effectiveStartMins; t <= endMins; t += intervalHours * 60) {
+        for (let t = effectiveStartMins; t + intervalHours * 60 <= endMins; t += intervalHours * 60) {
             todaySlots.push(new Date(now.getFullYear(), now.getMonth(), now.getDate(), Math.floor(t / 60), t % 60, 0, 0));
         }
 
@@ -226,9 +244,8 @@ const SOPCompletionHistory: React.FC<SOPCompletionHistoryProps> = ({ propertyId,
         return () => clearInterval(id);
     }, []);
 
-    useEffect(() => {
-        const fetchData = async () => {
-            try {
+    const fetchData = useMemo(() => async () => {
+        try {
                 setIsLoading(true);
 
                 const { data: { user } } = await supabase.auth.getUser();
@@ -264,6 +281,7 @@ const SOPCompletionHistory: React.FC<SOPCompletionHistoryProps> = ({ propertyId,
                     .from('sop_templates')
                     .select('id, title, frequency, category, assigned_to, start_time, end_time, started_at')
                     .eq('is_active', true)
+                    .eq('is_running', true)
                     .neq('frequency', 'on_demand');
 
                 if (isMultiProperty) {
@@ -294,7 +312,13 @@ const SOPCompletionHistory: React.FC<SOPCompletionHistoryProps> = ({ propertyId,
                     const templateCompletions = results.filter(
                         (c: any) => c.template_id === template.id && c.status === 'completed'
                     );
-                    const latestCompletion = templateCompletions[0] ?? null;
+                    // Sort by completed_at DESC to get the TRUE latest completion
+                    const sorted = [...templateCompletions].sort((a, b) => {
+                        const tA = a.completed_at ? new Date(a.completed_at).getTime() : 0;
+                        const tB = b.completed_at ? new Date(b.completed_at).getTime() : 0;
+                        return tB - tA;
+                    });
+                    const latestCompletion = sorted[0] ?? null;
                     return { template, latestCompletion, lastDate: latestCompletion?.completion_date ?? null };
                 });
                 setRawTemplateData(rows);
@@ -317,10 +341,18 @@ const SOPCompletionHistory: React.FC<SOPCompletionHistoryProps> = ({ propertyId,
             } finally {
                 setIsLoading(false);
             }
-        };
+    }, [propertyId, propertyIds, supabase, isAdmin, userRole]);
 
+    useEffect(() => {
         fetchData();
-    }, [propertyId, supabase, isAdmin, userRole]);
+        const interval = setInterval(fetchData, 60_000);
+        const onVisible = () => { if (document.visibilityState === 'visible') fetchData(); };
+        document.addEventListener('visibilitychange', onVisible);
+        return () => {
+            clearInterval(interval);
+            document.removeEventListener('visibilitychange', onVisible);
+        };
+    }, [fetchData]);
 
     const handleCancelSession = async (id: string, e: React.MouseEvent) => {
         e.stopPropagation();
@@ -361,7 +393,7 @@ const SOPCompletionHistory: React.FC<SOPCompletionHistoryProps> = ({ propertyId,
     };
 
     // ── Live-computed values (recalculate every second via liveNow) ──────────
-    const { dueTemplates, upcomingTemplates, stats } = useMemo(() => {
+    const { dueTemplates, upcomingTemplates, stats, clientMissedCount } = useMemo(() => {
         const due: any[] = [];
         const upcoming: any[] = [];
 
@@ -374,7 +406,7 @@ const SOPCompletionHistory: React.FC<SOPCompletionHistoryProps> = ({ propertyId,
             );
             if (dueStatus.due) {
                 const isHourly = /^every_\d+_hours?$/.test(template.frequency);
-                const currentSlot = computeCurrentSlotStart(template.frequency, template.start_time, liveNow);
+                const currentSlot = computeCurrentSlotStart(template.frequency, template.start_time, liveNow, template.end_time);
 
                 const slotMatch = (c: any) => {
                     if (c.template_id !== template.id) return false;
@@ -434,6 +466,37 @@ const SOPCompletionHistory: React.FC<SOPCompletionHistoryProps> = ({ propertyId,
             return false;
         }).length;
 
+        // ── Client-side missed slot computation (supplements cron-based sop_missed_alerts) ──
+        let clientMissedCount = 0;
+        const todayStr = liveNow.toISOString().slice(0, 10);
+        for (const { template } of rawTemplateData) {
+            const intervalH = parseHourlyInterval(template.frequency);
+            if (!intervalH || !template.start_time || !template.end_time) continue;
+
+            const [sH, sM] = template.start_time.slice(0, 5).split(':').map(Number);
+            const [eH, eM] = template.end_time.slice(0, 5).split(':').map(Number);
+            const startMins = sH * 60 + sM;
+            const endMins = eH * 60 + eM;
+
+            for (let t = startMins; t + intervalH * 60 <= endMins; t += intervalH * 60) {
+                const slotDate = new Date(liveNow.getFullYear(), liveNow.getMonth(), liveNow.getDate(), Math.floor(t / 60), t % 60, 0, 0);
+                // Skip slots whose window hasn't closed yet
+                const slotEnd = new Date(slotDate.getTime() + intervalH * 3_600_000);
+                if (slotEnd > liveNow) continue;
+                // Skip slots before template was started
+                if (template.started_at && slotDate < new Date(template.started_at)) continue;
+
+                const slotTimeStr = `${String(Math.floor(t / 60)).padStart(2, '0')}:${String(t % 60).padStart(2, '0')}`;
+                const done = completions.some((c: any) =>
+                    c.template_id === template.id &&
+                    c.status === 'completed' &&
+                    c.slot_time?.startsWith(slotTimeStr) &&
+                    c.completion_date === todayStr
+                );
+                if (!done) clientMissedCount++;
+            }
+        }
+
         return {
             dueTemplates: due,
             upcomingTemplates: upcoming,
@@ -444,6 +507,7 @@ const SOPCompletionHistory: React.FC<SOPCompletionHistoryProps> = ({ propertyId,
                 due: due.length,
                 overdue: overdueCount,
             },
+            clientMissedCount,
         };
     }, [rawTemplateData, completions, liveNow]);
 
@@ -475,6 +539,13 @@ const SOPCompletionHistory: React.FC<SOPCompletionHistoryProps> = ({ propertyId,
                             <History size={9} />
                             History
                         </button>
+                        <button
+                            onClick={() => onViewChange('reports')}
+                            className={`flex items-center gap-1 px-2 py-1 rounded-md font-black text-[8px] uppercase tracking-wider transition-all duration-200 ${activeView === 'reports' ? 'bg-primary text-white shadow-sm shadow-primary/20' : 'text-slate-400 hover:text-slate-600 hover:bg-white'}`}
+                        >
+                            <FileText size={9} />
+                            Reports
+                        </button>
                     </div>
                 </div>
             )}
@@ -503,16 +574,16 @@ const SOPCompletionHistory: React.FC<SOPCompletionHistoryProps> = ({ propertyId,
                 </div>
                 <button
                     onClick={() => setShowMissed(v => !v)}
-                    className={`text-left p-3.5 rounded-2xl border shadow-sm transition-all ${(missedAlerts.length + stats.overdue) > 0 ? 'bg-rose-50 border-rose-200' : 'bg-slate-50 border-slate-100'}`}
+                    className={`text-left p-3.5 rounded-2xl border shadow-sm transition-all ${(Math.max(clientMissedCount, missedAlerts.length) + stats.overdue) > 0 ? 'bg-rose-50 border-rose-200' : 'bg-slate-50 border-slate-100'}`}
                 >
                     <div className="flex items-start justify-between mb-2">
-                        <p className={`text-[9px] font-black uppercase tracking-widest ${(missedAlerts.length + stats.overdue) > 0 ? 'text-rose-400' : 'text-slate-400'}`}>Missed</p>
-                        {(missedAlerts.length + stats.overdue) > 0
+                        <p className={`text-[9px] font-black uppercase tracking-widest ${(Math.max(clientMissedCount, missedAlerts.length) + stats.overdue) > 0 ? 'text-rose-400' : 'text-slate-400'}`}>Missed</p>
+                        {(Math.max(clientMissedCount, missedAlerts.length) + stats.overdue) > 0
                             ? (showMissed ? <ChevronUp size={14} className="text-rose-400" /> : <ChevronDown size={14} className="text-rose-400" />)
                             : <XCircle size={14} className="text-slate-200" />
                         }
                     </div>
-                    <p className={`text-3xl font-black ${(missedAlerts.length + stats.overdue) > 0 ? 'text-rose-600' : 'text-slate-400'}`}>{missedAlerts.length + stats.overdue}</p>
+                    <p className={`text-3xl font-black ${(Math.max(clientMissedCount, missedAlerts.length) + stats.overdue) > 0 ? 'text-rose-600' : 'text-slate-400'}`}>{Math.max(clientMissedCount, missedAlerts.length) + stats.overdue}</p>
                 </button>
             </div>
 
@@ -585,23 +656,36 @@ const SOPCompletionHistory: React.FC<SOPCompletionHistoryProps> = ({ propertyId,
                                         <span className="text-[9px] font-black text-slate-400 uppercase tracking-wider">{frequencyLabel(template.frequency)}</span>
                                     </div>
                                 </div>
-                                {template.slotCompletedId ? (
+                                <div className="flex items-center gap-1.5 flex-shrink-0">
                                     <button
-                                        onClick={() => onSelectTemplate(template.id, template.slotCompletedId)}
-                                        className="flex items-center gap-1.5 px-3.5 py-2 bg-emerald-500 text-white rounded-xl text-[9px] font-black uppercase tracking-widest hover:bg-emerald-600 transition-all flex-shrink-0"
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            const dateStr = new Date().toISOString().split('T')[0];
+                                            window.open(`/api/properties/${propertyId}/sop/report?templateId=${template.id}&date=${dateStr}`, '_blank');
+                                        }}
+                                        title="Download Report"
+                                        className="w-9 h-9 flex items-center justify-center bg-slate-50 text-slate-400 rounded-xl hover:bg-white hover:text-primary border border-slate-100 transition-all"
                                     >
-                                        <CheckCircle2 size={9} />
-                                        Done · View
+                                         <Download size={14} />
                                     </button>
-                                ) : (
-                                    <button
-                                        onClick={() => onSelectTemplate(template.id, template.inProgressId || undefined)}
-                                        className="flex items-center gap-1.5 px-3.5 py-2 bg-slate-900 text-white rounded-xl text-[9px] font-black uppercase tracking-widest hover:bg-primary transition-all flex-shrink-0"
-                                    >
-                                        <Play size={9} />
-                                        {template.inProgressId ? 'Resume' : 'Start'}
-                                    </button>
-                                )}
+                                    {template.slotCompletedId ? (
+                                        <button
+                                            onClick={() => onSelectTemplate(template.id, template.slotCompletedId)}
+                                            className="flex items-center gap-1.5 px-3.5 py-2 bg-emerald-500 text-white rounded-xl text-[9px] font-black uppercase tracking-widest hover:bg-emerald-600 transition-all"
+                                        >
+                                            <CheckCircle2 size={9} />
+                                            Done · View
+                                        </button>
+                                    ) : (
+                                        <button
+                                            onClick={() => onSelectTemplate(template.id, template.inProgressId || undefined)}
+                                            className="flex items-center gap-1.5 px-3.5 py-2 bg-slate-900 text-white rounded-xl text-[9px] font-black uppercase tracking-widest hover:bg-primary transition-all"
+                                        >
+                                            <Play size={9} />
+                                            {template.inProgressId ? 'Resume' : 'Start'}
+                                        </button>
+                                    )}
+                                </div>
                             </div>
                         </motion.div>
                     ))}
@@ -708,17 +792,28 @@ const SOPCompletionHistory: React.FC<SOPCompletionHistoryProps> = ({ propertyId,
                                             <h4 className="font-black text-sm text-rose-900 tracking-tight truncate">
                                                 {alert.template?.title || 'Unknown Checklist'}
                                             </h4>
-                                            <div className="flex items-center flex-wrap gap-2 mt-0.5">
-                                                <div className="flex items-center gap-1 text-rose-400">
-                                                    <Calendar size={9} />
-                                                    <span className="text-[9px] font-bold uppercase tracking-wider">{dateLabel}</span>
-                                                </div>
-                                                <div className="flex items-center gap-1 bg-rose-100 px-1.5 py-0.5 rounded-md">
-                                                    <Clock size={9} className="text-rose-500" />
-                                                    <span className="text-[9px] font-black text-rose-600 tracking-wider">{slotLabel}</span>
-                                                </div>
-                                                <span className="px-1.5 py-0.5 rounded-md text-[9px] font-black uppercase tracking-wider bg-rose-200 text-rose-700">Missed</span>
-                                            </div>
+                                             <div className="flex items-center flex-wrap gap-2 mt-0.5">
+                                                 <div className="flex items-center gap-1 text-rose-400">
+                                                     <Calendar size={9} />
+                                                     <span className="text-[9px] font-bold uppercase tracking-wider">{dateLabel}</span>
+                                                 </div>
+                                                 <div className="flex items-center gap-1 bg-rose-100 px-1.5 py-0.5 rounded-md">
+                                                     <Clock size={9} className="text-rose-500" />
+                                                     <span className="text-[9px] font-black text-rose-600 tracking-wider">{slotLabel}</span>
+                                                 </div>
+                                                 <span className="px-1.5 py-0.5 rounded-md text-[9px] font-black uppercase tracking-wider bg-rose-200 text-rose-700">Missed</span>
+                                                 <button
+                                                     onClick={(e) => {
+                                                         e.stopPropagation();
+                                                         const dateStr = slotDate.toISOString().split('T')[0];
+                                                         window.open(`/api/properties/${propertyId}/sop/report?templateId=${alert.template_id}&date=${dateStr}`, '_blank');
+                                                     }}
+                                                     className="flex items-center gap-1 px-2 py-0.5 rounded-md text-[9px] font-black uppercase tracking-wider bg-white text-rose-400 border border-rose-100 hover:bg-rose-100 transition-all"
+                                                 >
+                                                     <Download size={9} />
+                                                     Report
+                                                 </button>
+                                             </div>
                                         </div>
                                     </div>
                                 </motion.div>
@@ -865,11 +960,22 @@ const SOPCompletionHistory: React.FC<SOPCompletionHistoryProps> = ({ propertyId,
                                 </div>
 
                                 {/* Action buttons */}
-                                <div className="flex items-center gap-1.5 mt-2.5 flex-wrap">
-                                    <span className={`px-2.5 py-1 rounded-lg text-[9px] font-black uppercase tracking-widest ${isCompleted ? 'bg-emerald-100 text-emerald-700' : isOverdue ? 'bg-rose-100 text-rose-700' : isInProgress ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-700'}`}>
-                                        {isOverdue ? 'Overdue' : completion.status.replace('_', ' ')}
-                                    </span>
-                                    {!isCompleted && (
+                                 <div className="flex items-center gap-1.5 mt-2.5 flex-wrap">
+                                     <button
+                                         onClick={(e) => {
+                                             e.stopPropagation();
+                                             const dateStr = new Date(completion.completion_date).toISOString().split('T')[0];
+                                             window.open(`/api/properties/${propertyId}/sop/report?templateId=${completion.template_id}&date=${dateStr}`, '_blank');
+                                         }}
+                                         className="flex items-center gap-1.5 px-3 py-1 bg-slate-50 text-slate-500 rounded-lg text-[9px] font-black uppercase tracking-widest hover:bg-white hover:text-primary border border-slate-100 transition-all"
+                                     >
+                                         <Download size={9} />
+                                         Report
+                                     </button>
+                                     <span className={`px-2.5 py-1 rounded-lg text-[9px] font-black uppercase tracking-widest ${isCompleted ? 'bg-emerald-100 text-emerald-700' : isOverdue ? 'bg-rose-100 text-rose-700' : isInProgress ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-700'}`}>
+                                         {isOverdue ? 'Overdue' : completion.status.replace('_', ' ')}
+                                     </span>
+                                     {!isCompleted && (
                                         <button
                                             onClick={(e) => { e.stopPropagation(); onSelectTemplate(completion.template_id, completion.id); }}
                                             className="flex items-center gap-1 px-2.5 py-1 bg-slate-900 text-white rounded-lg text-[9px] font-black uppercase tracking-widest hover:bg-primary transition-all"

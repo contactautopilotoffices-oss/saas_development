@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/frontend/utils/supabase/server';
+import { supabaseAdmin } from '@/backend/lib/supabase/admin';
 
 export async function POST(
     request: NextRequest,
@@ -9,37 +10,29 @@ export async function POST(
     const supabase = await createClient();
 
     try {
-        // Try getUser first (secure), with a fallback to getSession if it fails/slows down
-        // Note: in high-latency environments, getUser can be unreliable
+        // Auth: getUser is the only secure method — never fall back to getSession (cached/stale)
         const { data: { user }, error: authError } = await supabase.auth.getUser();
-
-        let authenticatedUser = user;
-        if (!authenticatedUser) {
-            console.warn('[SOP Photo Upload] getUser failed/returned null, trying getSession fallback...');
-            const { data: { session } } = await supabase.auth.getSession();
-            authenticatedUser = session?.user || null;
+        if (authError || !user) {
+            return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
         }
 
-        if (!authenticatedUser) {
-            console.error('[SOP Photo Upload] Auth Error:', {
-                error: authError?.message,
-                status: authError?.status,
-                hasUser: !!user,
-                propertyId
-            });
-            return NextResponse.json({
-                error: 'Unauthorized',
-                details: 'Please ensure you are logged in. (Session not found)'
-            }, { status: 401 });
+        // IDOR guard: verify the user actually belongs to this property
+        const { data: membership } = await supabaseAdmin
+            .from('property_memberships')
+            .select('role')
+            .eq('property_id', propertyId)
+            .eq('user_id', user.id)
+            .eq('is_active', true)
+            .maybeSingle();
+
+        if (!membership) {
+            return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
         }
-
-        console.log('[SOP Photo Upload] Auth Success:', { userId: authenticatedUser.id, propertyId });
-
 
         const formData = await request.formData();
-        const file = formData.get('file') as File;
-        const completionId = formData.get('completionId') as string;
-        const completionItemId = formData.get('completionItemId') as string;
+        const file = formData.get('file') as File | null;
+        const completionId = (formData.get('completionId') as string | null)?.trim();
+        const completionItemId = (formData.get('completionItemId') as string | null)?.trim();
 
         if (!file) {
             return NextResponse.json({ error: 'File is required' }, { status: 400 });
@@ -52,17 +45,26 @@ export async function POST(
             );
         }
 
-        // Convert file to buffer
+        // Verify the completion belongs to this property (prevents cross-property upload)
+        const { data: completion } = await supabaseAdmin
+            .from('sop_completions')
+            .select('id')
+            .eq('id', completionId)
+            .eq('property_id', propertyId)
+            .maybeSingle();
+
+        if (!completion) {
+            return NextResponse.json({ error: 'Completion not found for this property' }, { status: 404 });
+        }
+
         const bytes = await file.arrayBuffer();
         const buffer = Buffer.from(bytes);
 
-        // Generate unique filename
         const timestamp = Date.now();
         const filename = `${completionId}/${completionItemId}-${timestamp}.webp`;
         const filePath = `sop-photos/${propertyId}/${filename}`;
 
-        // Upload to Supabase Storage
-        const { data, error: uploadError } = await supabase.storage
+        const { error: uploadError } = await supabaseAdmin.storage
             .from('sop-photos')
             .upload(filePath, buffer, {
                 contentType: 'image/webp',
@@ -73,17 +75,12 @@ export async function POST(
             return NextResponse.json({ error: uploadError.message }, { status: 500 });
         }
 
-        // Get public URL
-        const { data: publicData } = supabase.storage
+        const { data: publicData } = supabaseAdmin.storage
             .from('sop-photos')
             .getPublicUrl(filePath);
 
         return NextResponse.json(
-            {
-                success: true,
-                url: publicData.publicUrl,
-                path: filePath,
-            },
+            { success: true, url: publicData.publicUrl, path: filePath },
             { status: 201 }
         );
     } catch (err) {

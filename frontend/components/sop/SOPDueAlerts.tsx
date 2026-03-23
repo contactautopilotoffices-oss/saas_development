@@ -34,7 +34,6 @@ export default function SOPDueAlerts() {
     const [dismissed, setDismissed] = useState<Set<string>>(new Set());
     const [navigatingId, setNavigatingId] = useState<string | null>(null);
     const [liveNow, setLiveNow] = useState(() => new Date());
-    const fetchedRef = useRef<string | null>(null);
 
     // 1s ticker for live countdown
     useEffect(() => {
@@ -42,63 +41,62 @@ export default function SOPDueAlerts() {
         return () => clearInterval(id);
     }, []);
 
-    // Fetch due templates whenever propertyId changes
-    useEffect(() => {
-        if (!propertyId || fetchedRef.current === propertyId) return;
+    // Fetch latest completions — called on mount, every 60s, and on tab-focus return
+    const fetchData = useMemo(() => async (pid: string) => {
+        try {
+            const { data: { user } } = await supabase.auth.getUser();
+            if (!user) return;
 
-        const fetch = async () => {
-            fetchedRef.current = propertyId;
-            try {
-                const { data: { user } } = await supabase.auth.getUser();
-                if (!user) return;
+            const { data: templates } = await supabase
+                .from('sop_templates')
+                .select('id, title, frequency, assigned_to, start_time, end_time, started_at')
+                .eq('property_id', pid)
+                .eq('is_active', true)
+                .eq('is_running', true)
+                .neq('frequency', 'on_demand');
 
-                // Fetch active running templates
-                const { data: templates } = await supabase
-                    .from('sop_templates')
-                    .select('id, title, frequency, assigned_to, start_time, end_time, started_at')
-                    .eq('property_id', propertyId)
-                    .eq('is_active', true)
-                    .neq('frequency', 'on_demand');
+            if (!templates || templates.length === 0) { setRawData([]); return; }
 
-                if (!templates || templates.length === 0) return;
+            const applicable = templates.filter(t =>
+                !t.assigned_to || t.assigned_to.length === 0 || t.assigned_to.includes(user.id)
+            );
 
-                // Filter to templates assigned to this user (or open)
-                const applicable = templates.filter(t =>
-                    !t.assigned_to || t.assigned_to.length === 0 || t.assigned_to.includes(user.id)
-                );
+            const ids = applicable.map(t => t.id);
+            const { data: completions } = await supabase
+                .from('sop_completions')
+                .select('id, template_id, completion_date, completed_at, status')
+                .in('template_id', ids)
+                .order('completed_at', { ascending: false });
 
-                const ids = applicable.map(t => t.id);
-
-                // Latest completed completion per template
-                const { data: completions } = await supabase
-                    .from('sop_completions')
-                    .select('id, template_id, completion_date, completed_at, status')
-                    .in('template_id', ids)
-                    .order('completed_at', { ascending: false });
-
-                const allCompletions = completions || [];
-
-                const rows = applicable.map(template => {
-                    const latestCompletion = allCompletions.find(c => c.template_id === template.id && c.status === 'completed') ?? null;
-                    return { template, latestCompletion, lastDate: latestCompletion?.completion_date ?? null };
-                });
-
-                // Map template_id → in-progress completion id (to resume instead of creating new)
-                const inProgressMap: Record<string, string> = {};
-                for (const c of allCompletions) {
-                    if (c.status === 'in_progress' && !inProgressMap[c.template_id]) {
-                        inProgressMap[c.template_id] = c.id;
-                    }
+            const allCompletions = completions || [];
+            const inProgressMap: Record<string, string> = {};
+            for (const c of allCompletions) {
+                if (c.status === 'in_progress' && !inProgressMap[c.template_id]) {
+                    inProgressMap[c.template_id] = c.id;
                 }
-
-                setRawData(rows.map(r => ({ ...r, inProgressId: inProgressMap[r.template.id] ?? null })));
-            } catch {
-                // silently ignore — this is a non-critical overlay
             }
-        };
 
-        fetch();
-    }, [propertyId, supabase]);
+            setRawData(applicable.map(template => {
+                const latestCompletion = allCompletions.find(c => c.template_id === template.id && c.status === 'completed') ?? null;
+                return { template, latestCompletion, lastDate: latestCompletion?.completion_date ?? null, inProgressId: inProgressMap[template.id] ?? null };
+            }));
+        } catch {
+            // non-critical overlay — silently ignore
+        }
+    }, [supabase]);
+
+    // Initial fetch + 60s polling + re-fetch on tab visibility (after returning from checklist runner)
+    useEffect(() => {
+        if (!propertyId) return;
+        fetchData(propertyId);
+        const interval = setInterval(() => fetchData(propertyId), 60_000);
+        const onVisible = () => { if (document.visibilityState === 'visible') fetchData(propertyId); };
+        document.addEventListener('visibilitychange', onVisible);
+        return () => {
+            clearInterval(interval);
+            document.removeEventListener('visibilitychange', onVisible);
+        };
+    }, [propertyId, fetchData]);
 
     // Compute due + upcoming alerts live every second
     const alerts = useMemo<DueAlert[]>(() => {

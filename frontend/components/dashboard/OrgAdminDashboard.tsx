@@ -5,7 +5,7 @@ import {
     LayoutDashboard, Building2, Users, UserPlus, Ticket, Settings, UserCircle,
     Search, Plus, Filter, LogOut, ChevronRight, MapPin, Edit, Trash2, X, Check, UsersRound,
     Coffee, IndianRupee, FileDown, ChevronDown, Fuel, Menu, Upload, FileBarChart, Zap, Package, ClipboardCheck, Scan, Key,
-    AlertCircle, CheckCircle2, Clock, GitBranch, DoorOpen
+    AlertCircle, CheckCircle2, Clock, GitBranch, DoorOpen, MessageCircle, Send, Loader2
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { createClient } from '@/frontend/utils/supabase/client';
@@ -949,10 +949,12 @@ const OrgAdminDashboard = () => {
                         {activeTab === 'visitors' && <VisitorsTab properties={properties} selectedPropertyId={selectedPropertyId} />}
 
                         {activeTab === 'reports' && org && (
-                            <ImportReportsView
-                                organizationId={org.id}
-                                propertyId={selectedPropertyId === 'all' ? undefined : selectedPropertyId}
-                            />
+                            <div className="space-y-6">
+                                <ImportReportsView
+                                    organizationId={org.id}
+                                    propertyId={selectedPropertyId === 'all' ? undefined : selectedPropertyId}
+                                />
+                            </div>
                         )}
 
                         {activeTab === 'users' && (
@@ -1533,7 +1535,7 @@ const OverviewTab = memo(function OverviewTab({
                 const [ticketsRes, electricityRes, vmsRes, vendorRes] = await Promise.all([
                     fetch(`/api/organizations/${orgId}/tickets-summary?period=${ticketPeriod}`),
                     fetch(`/api/organizations/${orgId}/electricity-readings?startDate=${monthStart}&endDate=${todayDate}`),
-                    fetch(`/api/organizations/${orgId}/vms-summary?period=today`),
+                    fetch(`/api/organizations/${orgId}/vms-summary?period=${ticketPeriod}`),
                     fetch(`/api/organizations/${orgId}/vendor-summary?period=month`),
                 ]);
 
@@ -1576,8 +1578,8 @@ const OverviewTab = memo(function OverviewTab({
                 if (vmsData) {
                     setVmsSummary({
                         total_visitors_today: vmsData.total_visitors || 0,
-                        checked_in: vmsData.checked_in || 0,
-                        checked_out: vmsData.checked_out || 0,
+                        checked_in: vmsData.total_checked_in || 0,
+                        checked_out: vmsData.total_checked_out || 0,
                         properties: vmsData.properties || [],
                     });
                 }
@@ -2157,7 +2159,9 @@ const OverviewTab = memo(function OverviewTab({
                                     <div className="text-2xl font-black text-blue-900">{displayTicketStats.total_tickets}</div>
                                 </div>
                                 <div className="p-4 bg-emerald-50 rounded-xl">
-                                    <div className="text-xs font-bold text-emerald-600 mb-1">Visitors</div>
+                                    <div className="text-xs font-bold text-emerald-600 mb-1">
+                                        Visitors {ticketPeriod === 'today' ? '(Today)' : ticketPeriod === 'month' ? '(Month)' : '(All Time)'}
+                                    </div>
                                     <div className="text-2xl font-black text-emerald-900">{displayVmsStats.total_visitors_today}</div>
                                 </div>
                                 <div className="p-4 bg-yellow-50 rounded-xl">
@@ -3484,6 +3488,91 @@ function PropertySelectorPill({ properties, selectedId, isOpen, onToggle, onSele
                     </>
                 )}
             </AnimatePresence>
+        </div>
+    );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// WhatsApp Summary Card — shown at the top of the Reports tab
+// ─────────────────────────────────────────────────────────────────────────────
+function WhatsAppSummaryCard({
+    organizationId,
+    propertyId,
+}: {
+    organizationId: string;
+    propertyId?: string;
+}) {
+    const [status, setStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
+    const [info, setInfo] = useState<{ recipients: number; open_tickets: number } | null>(null);
+    const [errorMsg, setErrorMsg] = useState('');
+
+    const handleSend = async () => {
+        setStatus('loading');
+        setInfo(null);
+        setErrorMsg('');
+        try {
+            const res = await fetch('/api/reports/send-whatsapp-summary', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ organizationId, propertyId }),
+            });
+            const data = await res.json();
+            if (!res.ok) {
+                setErrorMsg(data.error || 'Failed to send report');
+                setStatus('error');
+            } else {
+                setInfo({ recipients: data.recipients, open_tickets: data.open_tickets });
+                setStatus('success');
+                // Auto-reset after 8 seconds
+                setTimeout(() => setStatus('idle'), 8000);
+            }
+        } catch {
+            setErrorMsg('Network error. Please try again.');
+            setStatus('error');
+        }
+    };
+
+    return (
+        <div className="bg-white border border-slate-200 rounded-2xl p-5 flex flex-col sm:flex-row sm:items-center gap-4">
+            {/* Icon + text */}
+            <div className="flex items-center gap-4 flex-1">
+                <div className="w-12 h-12 rounded-xl bg-emerald-50 flex items-center justify-center flex-shrink-0">
+                    <MessageCircle className="w-6 h-6 text-emerald-600" />
+                </div>
+                <div>
+                    <p className="text-sm font-black text-slate-900">Send Ticket Report on WhatsApp</p>
+                    <p className="text-xs text-slate-500 mt-0.5">
+                        Sends a live open-tickets summary to all Org Super Admins via WhatsApp instantly.
+                    </p>
+                    {status === 'success' && info && (
+                        <p className="text-xs text-emerald-600 font-bold mt-1">
+                            ✅ Sent to {info.recipients} admin{info.recipients !== 1 ? 's' : ''} — {info.open_tickets} open ticket{info.open_tickets !== 1 ? 's' : ''} reported.
+                        </p>
+                    )}
+                    {status === 'error' && (
+                        <p className="text-xs text-rose-500 font-bold mt-1">❌ {errorMsg}</p>
+                    )}
+                </div>
+            </div>
+
+            {/* Button */}
+            <button
+                onClick={handleSend}
+                disabled={status === 'loading'}
+                className="flex items-center gap-2 px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-400 text-white text-xs font-black uppercase tracking-widest rounded-xl transition-all duration-200 flex-shrink-0"
+            >
+                {status === 'loading' ? (
+                    <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        Sending...
+                    </>
+                ) : (
+                    <>
+                        <Send className="w-4 h-4" />
+                        Send Report
+                    </>
+                )}
+            </button>
         </div>
     );
 }

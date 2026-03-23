@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/frontend/utils/supabase/server'
 import { createAdminClient } from '@/frontend/utils/supabase/admin'
+import { WhatsAppService } from '@/backend/services/WhatsAppService'
+import { buildWelcomeMessage } from '@/backend/lib/whatsapp/welcomeMessage'
 
 interface CreateUserRequest {
     email: string
@@ -49,6 +51,15 @@ export async function POST(request: NextRequest) {
         if (!email.includes('@')) {
             return NextResponse.json(
                 { error: 'Invalid email format' },
+                { status: 400 }
+            )
+        }
+
+        // Role enum guard — reject any value not in the allowed set to prevent privilege escalation
+        const ALLOWED_ROLES = ['master_admin', 'org_super_admin', 'property_admin', 'staff', 'mst', 'tenant'] as const;
+        if (!ALLOWED_ROLES.includes(role as any)) {
+            return NextResponse.json(
+                { error: `Invalid role "${role}". Allowed: ${ALLOWED_ROLES.join(', ')}` },
                 { status: 400 }
             )
         }
@@ -175,35 +186,41 @@ export async function POST(request: NextRequest) {
 
         const { property_id } = body
 
-        // The database trigger will auto-create user_profiles
-        // Now create organization membership IF an organization_id was provided
-        if (organization_id) {
-            const { error: memberError } = await adminClient
-                .from('organization_memberships')
-                .insert({
-                    organization_id,
-                    user_id: userData.user.id,
-                    role,
-                })
-
-            if (memberError) {
-                console.error('Membership creation error:', memberError)
+        // Membership logic:
+        // org_super_admin → organization_memberships only
+        // all other roles  → property_memberships only
+        // On failure: delete the auth user to avoid stranded accounts (partial state cleanup)
+        if (role === 'org_super_admin') {
+            if (organization_id) {
+                const { error: memberError } = await adminClient
+                    .from('organization_memberships')
+                    .insert({ organization_id, user_id: userData.user.id, role })
+                if (memberError) {
+                    await adminClient.auth.admin.deleteUser(userData.user.id)
+                    return NextResponse.json(
+                        { error: `User created but membership failed — rolled back. Reason: ${memberError.message}` },
+                        { status: 500 }
+                    )
+                }
             }
-        }
-
-        // Create property membership IF a property_id was provided
-        if (property_id) {
-            const { error: propMemberError } = await adminClient
-                .from('property_memberships')
-                .insert({
-                    property_id,
-                    user_id: userData.user.id,
-                    role: role === 'org_super_admin' ? 'property_admin' : role, // Map safely
-                    is_active: true
-                })
-
-            if (propMemberError) {
-                console.error('Property membership creation error:', propMemberError)
+        } else {
+            if (property_id) {
+                const { error: propMemberError } = await adminClient
+                    .from('property_memberships')
+                    .insert({
+                        property_id,
+                        organization_id: organization_id || null,
+                        user_id: userData.user.id,
+                        role,
+                        is_active: true,
+                    })
+                if (propMemberError) {
+                    await adminClient.auth.admin.deleteUser(userData.user.id)
+                    return NextResponse.json(
+                        { error: `User created but property membership failed — rolled back. Reason: ${propMemberError.message}` },
+                        { status: 500 }
+                    )
+                }
             }
         }
 
@@ -269,6 +286,23 @@ export async function POST(request: NextRequest) {
                     }
                 }
             }
+        }
+
+        // Send welcome WhatsApp message to new user (best-effort, non-blocking)
+        try {
+            const { data: newUserProfile } = await adminClient
+                .from('users')
+                .select('phone')
+                .eq('id', userData.user.id)
+                .maybeSingle();
+
+            if (newUserProfile?.phone) {
+                WhatsAppService.send(newUserProfile.phone, {
+                    message: buildWelcomeMessage(full_name),
+                });
+            }
+        } catch {
+            // Never block user creation if WhatsApp fails
         }
 
         return NextResponse.json({

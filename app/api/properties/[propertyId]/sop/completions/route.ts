@@ -13,7 +13,13 @@ export async function GET(
     const templateId = searchParams.get('templateId');
     const completionDate = searchParams.get('completionDate');
     const userId = searchParams.get('userId');
-    const limit = parseInt(searchParams.get('limit') || '50');
+    const rawLimit = parseInt(searchParams.get('limit') || '50');
+    const limit = Number.isFinite(rawLimit) ? Math.min(Math.max(rawLimit, 1), 200) : 50;
+
+    // Validate completionDate format to prevent injection / unexpected query results
+    if (completionDate && !/^\d{4}-\d{2}-\d{2}$/.test(completionDate)) {
+        return NextResponse.json({ error: 'completionDate must be YYYY-MM-DD' }, { status: 400 });
+    }
 
     try {
         let query = supabase
@@ -93,7 +99,7 @@ export async function POST(
         // Verify template exists and get its items (admin bypasses RLS)
         const { data: template, error: templateError } = await supabaseAdmin
             .from('sop_templates')
-            .select('id, frequency, start_time, items:sop_checklist_items(*)')
+            .select('id, frequency, start_time, end_time, items:sop_checklist_items(*)')
             .eq('id', templateId)
             .eq('property_id', propertyId)
             .single();
@@ -104,45 +110,108 @@ export async function POST(
 
         const finalCompletionDate = completionDate || new Date().toISOString().split('T')[0];
 
+        // ── Time Window Enforcement (Global) ──────────────────────────────────
+        // If start_time/end_time are set, strictly enforce the window for ALL frequencies.
+        const startTime = (template as any).start_time;
+        const endTime = (template as any).end_time;
+        const now = new Date();
+        const nowMins = now.getHours() * 60 + now.getMinutes();
+
+        if (startTime) {
+            const [sH, sM] = startTime.slice(0, 5).split(':').map(Number);
+            const startMins = sH * 60 + sM;
+            if (nowMins < startMins) {
+                return NextResponse.json({ error: 'Checklist window has not started yet' }, { status: 400 });
+            }
+        }
+
+        if (endTime) {
+            const [eH, eM] = endTime.slice(0, 5).split(':').map(Number);
+            const endMins = eH * 60 + eM;
+            if (nowMins > endMins) {
+                return NextResponse.json({ error: 'Checklist window has closed for today' }, { status: 400 });
+            }
+        }
+
         // ── Compute slot_time for hourly templates ────────────────────────────
         // Slot = start of the current interval window (e.g. "13:00" for the 1 PM slot).
         // Daily/weekly templates use slot_time = null (one per day).
         let slotTime: string | null = null;
         const hourlyMatch = (template as any).frequency?.match(/^every_(\d+)_hours?$/);
-        if (hourlyMatch && (template as any).start_time) {
+        if (hourlyMatch && startTime) {
             const intervalH = parseInt(hourlyMatch[1]);
-            const [sH, sM] = (template as any).start_time.slice(0, 5).split(':').map(Number);
-            const now = new Date();
+            const [sH, sM] = startTime.slice(0, 5).split(':').map(Number);
             const startMins = sH * 60 + sM;
-            const nowMins = now.getHours() * 60 + now.getMinutes();
             const elapsed = nowMins - startMins;
-            if (elapsed >= 0) {
-                const slotIndex = Math.floor(elapsed / (intervalH * 60));
-                const slotStartMins = startMins + slotIndex * intervalH * 60;
-                const h = Math.floor(slotStartMins / 60) % 24;
-                const mn = slotStartMins % 60;
-                slotTime = `${String(h).padStart(2, '0')}:${String(mn).padStart(2, '0')}`;
+
+            const slotIndex = Math.floor(elapsed / (intervalH * 60));
+            const slotStartMins = startMins + slotIndex * intervalH * 60;
+
+            // Strict hourly-end check: the slot must fully FIT within the window
+            if (endTime) {
+                const [eH, eM] = endTime.slice(0, 5).split(':').map(Number);
+                const endMins = eH * 60 + eM;
+                const lastValidSlotStart = startMins + Math.floor((endMins - startMins - intervalH * 60) / (intervalH * 60)) * intervalH * 60;
+
+                if (slotStartMins > lastValidSlotStart) {
+                    return NextResponse.json({ error: 'Checklist window has closed for today' }, { status: 400 });
+                }
             }
+
+            const h = Math.floor(slotStartMins / 60) % 24;
+            const mn = slotStartMins % 60;
+            slotTime = `${String(h).padStart(2, '0')}:${String(mn).padStart(2, '0')}`;
         }
 
-        // ── Deduplicate: join any existing session for this slot ─────────────
-        // Checks both in_progress AND completed so one slot = one shared completion.
-        let dedupQuery = supabaseAdmin
-            .from('sop_completions')
-            .select('*, items:sop_completion_items(*)')
-            .eq('template_id', templateId)
-            .eq('property_id', propertyId)
-            .eq('completion_date', finalCompletionDate)
-            .in('status', ['in_progress', 'completed']);
+        // ── Deduplicate: one record per slot ─────────────────────────────────
+        // Three cases:
+        //   1. Hourly WITH start_time  → match exact slot_time column (any status)
+        //   2. Hourly WITHOUT start_time → any record created within the last intervalH hours
+        //   3. Daily/weekly/monthly → resume in_progress from today only
+        let existingCompletion: any = null;
 
         if (slotTime) {
-            dedupQuery = (dedupQuery as any).eq('slot_time', slotTime);
+            // Case 1: slot_time-based dedup — one record per labelled slot window
+            const { data } = await supabaseAdmin
+                .from('sop_completions')
+                .select('*, items:sop_completion_items(*)')
+                .eq('template_id', templateId)
+                .eq('property_id', propertyId)
+                .eq('completion_date', finalCompletionDate)
+                .eq('slot_time', slotTime)
+                .order('created_at', { ascending: false })
+                .limit(1);
+            existingCompletion = data?.[0] ?? null;
+        } else if (hourlyMatch) {
+            // Case 2: floating hourly — block if any record (any status) was created
+            // within the last intervalH hours (i.e. within the same effective window)
+            const intervalH = parseInt(hourlyMatch[1]);
+            const cutoff = new Date(Date.now() - intervalH * 3_600_000).toISOString();
+            const { data } = await supabaseAdmin
+                .from('sop_completions')
+                .select('*, items:sop_completion_items(*)')
+                .eq('template_id', templateId)
+                .eq('property_id', propertyId)
+                .gte('created_at', cutoff)
+                .order('created_at', { ascending: false })
+                .limit(1);
+            existingCompletion = data?.[0] ?? null;
+        } else {
+            // Case 3: daily/weekly/monthly — resume in_progress only
+            const { data } = await supabaseAdmin
+                .from('sop_completions')
+                .select('*, items:sop_completion_items(*)')
+                .eq('template_id', templateId)
+                .eq('property_id', propertyId)
+                .eq('completion_date', finalCompletionDate)
+                .eq('status', 'in_progress')
+                .order('created_at', { ascending: false })
+                .limit(1);
+            existingCompletion = data?.[0] ?? null;
         }
 
-        const { data: existing } = await (dedupQuery as any).maybeSingle();
-
-        if (existing) {
-            return NextResponse.json({ success: true, completion: existing });
+        if (existingCompletion) {
+            return NextResponse.json({ success: true, completion: existingCompletion });
         }
 
         // Create completion (use admin so open-template staff can always insert)

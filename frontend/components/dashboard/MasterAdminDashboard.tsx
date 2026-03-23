@@ -6,7 +6,7 @@ import {
     LayoutGrid, Settings, Trash2, RefreshCcw,
     CheckCircle2, AlertCircle, Search, Plus, ExternalLink, XCircle, Filter,
     Key, Eye, EyeOff, Globe, Copy, X, Ticket, Link as LinkIcon, LogOut,
-    UserCircle, FileDown, Brain, Wrench
+    UserCircle, FileDown, Brain, Wrench, MessageCircle
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useRouter, useSearchParams } from 'next/navigation';
@@ -27,8 +27,9 @@ import AnalyticsTab from './AnalyticsTab';
 import MasterAdminChatbot from './MasterAdminChatbot';
 import ResolverStatsList from '@/frontend/components/mst/ResolverStatsList';
 import { MessageSquareCode } from 'lucide-react';
+import WhatsAppTemplatesManager from '@/frontend/components/admin/WhatsAppTemplatesManager';
 
-type Tab = 'overview' | 'analytics' | 'organizations' | 'tickets' | 'users' | 'visitors' | 'invite-links' | 'ai-insights' | 'ai-assistant' | 'issue-config' | 'modules' | 'settings' | 'resolvers' | 'super-tenants';
+type Tab = 'overview' | 'analytics' | 'organizations' | 'tickets' | 'users' | 'visitors' | 'invite-links' | 'ai-insights' | 'ai-assistant' | 'issue-config' | 'modules' | 'settings' | 'resolvers' | 'super-tenants' | 'whatsapp-templates';
 
 interface Organization {
     id: string;
@@ -108,7 +109,7 @@ const MasterAdminDashboard = () => {
     // Restore tab from URL
     useEffect(() => {
         const tab = searchParams.get('tab');
-        if (tab && ['overview', 'analytics', 'organizations', 'tickets', 'users', 'visitors', 'invite-links', 'ai-insights', 'ai-assistant', 'issue-config', 'modules', 'settings', 'resolvers', 'super-tenants'].includes(tab)) {
+        if (tab && ['overview', 'analytics', 'organizations', 'tickets', 'users', 'visitors', 'invite-links', 'ai-insights', 'ai-assistant', 'issue-config', 'modules', 'settings', 'resolvers', 'super-tenants', 'whatsapp-templates'].includes(tab)) {
             setActiveTab(tab as Tab);
         }
     }, [searchParams]);
@@ -279,6 +280,7 @@ const MasterAdminDashboard = () => {
         { id: 'ai-insights', label: 'AI Intelligence', icon: Brain },
         { id: 'ai-assistant', label: 'AI Assistant', icon: MessageSquareCode },
         { id: 'issue-config', label: 'Issue Mapping', icon: LayoutGrid },
+        { id: 'whatsapp-templates', label: 'WhatsApp Templates', icon: MessageCircle },
         { id: 'modules', label: 'Module Control', icon: LayoutGrid },
         { id: 'settings', label: 'System', icon: Settings },
     ];
@@ -455,6 +457,9 @@ const MasterAdminDashboard = () => {
                         )}
                         {activeTab === 'ai-assistant' && (
                             <MasterAdminChatbot />
+                        )}
+                        {activeTab === 'whatsapp-templates' && (
+                            <WhatsAppTemplatesManager />
                         )}
                         {activeTab === 'modules' && (
                             <ModuleConfig

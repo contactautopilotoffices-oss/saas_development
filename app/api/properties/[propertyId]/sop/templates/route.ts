@@ -100,8 +100,8 @@ export async function POST(
                 category,
                 frequency,
                 assigned_to,
-                ...(start_time ? { start_time } : {}),
-                ...(end_time ? { end_time } : {}),
+                start_time: start_time || '09:00',
+                end_time: end_time || '17:00',
                 created_by: user.id,
             })
             .select()

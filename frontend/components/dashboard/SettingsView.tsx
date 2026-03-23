@@ -221,6 +221,15 @@ export default function SettingsView({ onUpdate }: SettingsViewProps) {
         if (!user || !profile) return;
 
         setIsSaving(true);
+
+        // Capture old phone before saving — used to detect first-time phone set
+        const { data: oldRecord } = await supabase
+            .from('users')
+            .select('phone')
+            .eq('id', user.id)
+            .single();
+        const oldPhone = oldRecord?.phone || '';
+
         try {
             let avatarUrl = profile.avatar_url;
 
@@ -266,6 +275,12 @@ export default function SettingsView({ onUpdate }: SettingsViewProps) {
             showToast('Profile updated successfully');
             if (onUpdate) onUpdate();
             fetchProfile();
+
+            // Send welcome WhatsApp if phone was just set for the first time
+            const newPhone = profile.phone?.trim() || '';
+            if (!oldPhone && newPhone) {
+                fetch('/api/users/send-welcome', { method: 'POST' }).catch(() => {});
+            }
         } catch (err: any) {
             console.error('Error saving profile:', err);
             showToast(err.message || 'Failed to update profile', 'error');

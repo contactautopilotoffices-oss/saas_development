@@ -25,6 +25,7 @@ interface TicketData {
     assigneeName: string;
     beforePhoto: string | null;
     afterPhoto: string | null;
+    internal: boolean;
 }
 
 interface ReportData {
@@ -71,7 +72,7 @@ export default function RequestsReportPage() {
     const [displayLimit, setDisplayLimit] = useState(15);
     const [isDownloading, setIsDownloading] = useState(false);
     const [downloadProgress, setDownloadProgress] = useState(0);
-    const [reportFilter, setReportFilter] = useState<'all' | 'open' | 'pending_validation'>('all');
+    const [reportFilter, setReportFilter] = useState<'all' | 'open' | 'pending_validation' | 'internal'>('all');
     const isCancelledRef = useRef(false);
     const [selectedTicketIds, setSelectedTicketIds] = useState<string[]>([]);
     const [isDownloadingSelected, setIsDownloadingSelected] = useState(false);
@@ -94,7 +95,7 @@ export default function RequestsReportPage() {
             setChartInstances([]);
             initCharts();
         }
-    }, [reportData]);
+    }, [reportData, reportFilter]);
 
     // Resize charts to their print dimensions just before the print dialog renders
     useEffect(() => {
@@ -125,6 +126,25 @@ export default function RequestsReportPage() {
         if (!reportData || typeof window === 'undefined') return;
         const Chart = (await import('chart.js/auto')).default;
 
+        // Compute floor data from currently filtered tickets
+        const currentFiltered = reportData.tickets.filter(t => {
+            if (reportFilter === 'open') return ['open', 'in_progress', 'assigned', 'paused'].includes(t.status);
+            if (reportFilter === 'pending_validation') return t.status === 'pending_validation';
+            if (reportFilter === 'internal') return t.internal === true;
+            return true;
+        });
+        const floorCountMap: Record<string, number> = {};
+        currentFiltered.forEach(t => {
+            const fl = t.floorLabel || 'Unspecified';
+            floorCountMap[fl] = (floorCountMap[fl] || 0) + 1;
+        });
+        const floorLabels = Object.keys(floorCountMap).sort((a, b) => {
+            if (a === 'Unspecified') return 1;
+            if (b === 'Unspecified') return -1;
+            return a.localeCompare(b);
+        });
+        const floorData = floorLabels.map(l => floorCountMap[l]);
+
         const floorCanvas = document.getElementById('floorChartReq') as HTMLCanvasElement;
         if (floorCanvas) {
             Chart.getChart(floorCanvas)?.destroy();
@@ -148,10 +168,10 @@ export default function RequestsReportPage() {
             const instance = new Chart(floorCanvas, {
                 type: 'bar',
                 data: {
-                    labels: reportData.charts.floor.labels,
+                    labels: floorLabels,
                     datasets: [{
                         label: 'total tickets',
-                        data: reportData.charts.floor.data,
+                        data: floorData,
                         backgroundColor: '#708F96',
                         borderRadius: 4,
                     }],
@@ -167,7 +187,7 @@ export default function RequestsReportPage() {
                     },
                     onClick: (_e: any, elements: any[]) => {
                         if (elements.length > 0) {
-                            const label = reportData.charts.floor.labels[elements[0].index];
+                            const label = floorLabels[elements[0].index];
                             const el = document.getElementById(`floor-${label.replace(/\s+/g, '-').toLowerCase()}`);
                             if (el) el.scrollIntoView({ behavior: 'smooth' });
                         }
@@ -227,13 +247,18 @@ export default function RequestsReportPage() {
         const total = tickets.length;
 
         // --- Page 1: Dashboard Summary ---
+        // KPIs computed from filteredTickets (matches the active filter)
+        const filtClosed = tickets.filter(t => t.status === 'closed' || t.status === 'resolved').length;
+        const filtOpen = tickets.filter(t => !['closed', 'resolved', 'pending_validation'].includes(t.status)).length;
+        const filtPending = tickets.filter(t => t.status === 'pending_validation').length;
+        const filtRate = tickets.length > 0 ? ((filtClosed / tickets.length) * 100).toFixed(1) : '0';
 
         // Header Bar & Title
-        doc.setFillColor(170, 137, 95); // #AA895F
+        doc.setFillColor(170, 137, 95);
         doc.rect(15, 15, 2, 12, 'F');
         doc.setFontSize(22);
         doc.setFont('helvetica', 'bold');
-        doc.setTextColor(112, 143, 150); // #708F96
+        doc.setTextColor(112, 143, 150);
         doc.text(`${reportData.property.name || 'Property'} - ${filterLabel} report`, 22, 25);
 
         // Subheader
@@ -244,37 +269,29 @@ export default function RequestsReportPage() {
         doc.text(`Period: ${reportData.month.label} | Generated: ${generatedDate}`, 15, 35);
 
         // KPI Cards Row
-        const yHeader = 30; // Base Y for header elements
+        const yHeader = 30;
         const kpiX = [15, 60, 105, 150];
         const kpiTitles = [
-            'TOTAL TICKETS',
-            'CLOSED',
-            'OPEN / WIP',
-            reportData.kpis.isValidationEnabled ? 'PENDING VALIDATION' : 'CLOSURE RATE'
+            'TOTAL TICKETS', 'CLOSED', 'OPEN / WIP',
+            reportData.kpis.isValidationEnabled ? 'PENDING VALIDATION' : 'CLOSURE RATE',
         ];
         const kpiValues = [
-            reportData.kpis.totalSnags,
-            reportData.kpis.closedSnags,
-            reportData.kpis.openSnags,
-            reportData.kpis.isValidationEnabled ? reportData.kpis.pendingValidationCount : `${reportData.kpis.closureRate}%`
+            tickets.length, filtClosed, filtOpen,
+            reportData.kpis.isValidationEnabled ? filtPending : `${filtRate}%`,
         ];
         const kpiColors = [
-            [30, 30, 30],
-            [34, 197, 94],
-            [234, 179, 8],
-            reportData.kpis.isValidationEnabled ? [170, 137, 95] : [30, 30, 30]
+            [30, 30, 30], [34, 197, 94], [234, 179, 8],
+            reportData.kpis.isValidationEnabled ? [170, 137, 95] : [30, 30, 30],
         ];
 
         kpiX.forEach((x, i) => {
             doc.setFillColor(255, 255, 255);
             doc.setDrawColor(240, 240, 240);
             doc.roundedRect(x, yHeader + 15, 42, 22, 2, 2, 'FD');
-
             doc.setFontSize(7);
             doc.setFont('helvetica', 'bold');
             doc.setTextColor(150, 150, 150);
             doc.text(kpiTitles[i], x + 21, yHeader + 32, { align: 'center' });
-
             doc.setFontSize(16);
             doc.setTextColor(kpiColors[i][0], kpiColors[i][1], kpiColors[i][2]);
             doc.text(String(kpiValues[i]), x + 21, yHeader + 26, { align: 'center' });
@@ -282,18 +299,17 @@ export default function RequestsReportPage() {
 
         // --- Side-by-Side Charts Row ---
         const yCharts = 95;
-        const chartW = 87; // Fit two side-by-side (15 + 87 + 6 + 87 + 15 = 210)
+        const chartW = 87;
         const chartH = 75;
 
-        // 1. Floor Chart (Left)
+        // 1. Floor Chart (Left) — canvas already reflects active filter
         const floorCanvas = document.getElementById('floorChartReq') as HTMLCanvasElement;
         if (floorCanvas) {
             try {
-                // Use higher resolution for the screenshot
                 const imgData = floorCanvas.toDataURL('image/png', 1.0);
                 doc.addImage(imgData, 'PNG', 15, yCharts, chartW, chartH);
             } catch (e) {
-                console.error("Floor chart fail:", e);
+                console.error('Floor chart fail:', e);
                 doc.setDrawColor(200, 200, 200);
                 doc.rect(15, yCharts, chartW, chartH);
                 doc.setTextColor(150, 150, 150);
@@ -301,7 +317,7 @@ export default function RequestsReportPage() {
             }
         }
 
-        // 2. Category Breakdown (Right - Redesigned)
+        // 2. Category Breakdown (Right) — computed from filteredTickets
         const catX = 110;
         let catY = yCharts;
         const catW = 85;
@@ -312,67 +328,54 @@ export default function RequestsReportPage() {
         doc.text('TICKETS BY CATEGORY', catX, catY);
         catY += 8;
 
-        // Legend for Category Chart
         doc.setFontSize(7);
         doc.setFont('helvetica', 'bold');
         doc.setFillColor(52, 211, 153); doc.roundedRect(catX, catY - 2.5, 3, 3, 0.5, 0.5, 'F');
         doc.setTextColor(100, 100, 100); doc.text('Closed', catX + 5, catY);
-
         doc.setFillColor(248, 113, 113); doc.roundedRect(catX + 20, catY - 2.5, 3, 3, 0.5, 0.5, 'F');
         doc.text('Open', catX + 25, catY);
         catY += 8;
 
-        const rawLabels = reportData.charts.department.labels;
-        const rawOpen = reportData.charts.department.open;
-        const rawClosed = reportData.charts.department.closed;
-        const catRows = rawLabels.map((label: string, i: number) => ({
-            label,
-            open: rawOpen[i] || 0,
-            closed: rawClosed[i] || 0,
-            total: (rawOpen[i] || 0) + (rawClosed[i] || 0),
-        })).sort((a: any, b: any) => b.total - a.total).slice(0, 15);
+        // Build category rows from filteredTickets
+        const catMap: Record<string, { open: number; closed: number }> = {};
+        tickets.forEach(t => {
+            const cat = t.category || 'Other';
+            if (!catMap[cat]) catMap[cat] = { open: 0, closed: 0 };
+            if (['closed', 'resolved'].includes(t.status)) catMap[cat].closed++;
+            else catMap[cat].open++;
+        });
+        const catRows = Object.entries(catMap)
+            .map(([label, v]) => ({ label, open: v.open, closed: v.closed, total: v.open + v.closed }))
+            .sort((a, b) => b.total - a.total)
+            .slice(0, 15);
         const catMax = catRows[0]?.total || 1;
 
-        catRows.forEach((row: any) => {
-            // Label and Count
+        catRows.forEach(row => {
             doc.setFontSize(7.5);
             doc.setFont('helvetica', 'bold');
             doc.setTextColor(50, 50, 50);
             const shortLabel = row.label.length > 30 ? row.label.slice(0, 28) + '…' : row.label;
             doc.text(shortLabel, catX, catY);
-
             doc.setTextColor(150, 150, 150);
-            const countsText = `${row.closed} closed · ${row.open} open`;
             doc.setFont('helvetica', 'normal');
             doc.setFontSize(6.5);
-            doc.text(countsText, catX + catW - 15, catY, { align: 'right' });
-
+            doc.text(`${row.closed} closed · ${row.open} open`, catX + catW - 15, catY, { align: 'right' });
             doc.setFontSize(8);
             doc.setFont('helvetica', 'bold');
             doc.setTextColor(40, 40, 40);
-            // Perfectly aligned totals at the far right
             doc.text(String(row.total), catX + catW - 1, catY, { align: 'right' });
             catY += 4;
 
-            // Progress bar
             const barW = catW - 5;
             doc.setFillColor(240, 240, 240);
             doc.roundedRect(catX, catY, barW, 3, 1, 1, 'F');
-
             const closedW = (row.closed / catMax) * barW;
-            if (closedW > 0) {
-                doc.setFillColor(52, 211, 153);
-                doc.roundedRect(catX, catY, closedW, 3, 1, 1, 'F');
-            }
+            if (closedW > 0) { doc.setFillColor(52, 211, 153); doc.roundedRect(catX, catY, closedW, 3, 1, 1, 'F'); }
             const openW = (row.open / catMax) * barW;
             if (openW > 0) {
                 doc.setFillColor(248, 113, 113);
-                // If closedW is 0, start from beginning and round left, else start after closed and no round left
-                if (closedW > 0) {
-                    doc.rect(catX + closedW, catY, openW, 3, 'F');
-                } else {
-                    doc.roundedRect(catX, catY, openW, 3, 1, 1, 'F');
-                }
+                if (closedW > 0) doc.rect(catX + closedW, catY, openW, 3, 'F');
+                else doc.roundedRect(catX, catY, openW, 3, 1, 1, 'F');
             }
             catY += 7;
         });
@@ -800,10 +803,11 @@ export default function RequestsReportPage() {
     const filteredTickets = reportData ? reportData.tickets.filter(t => {
         if (reportFilter === 'open') return ['open', 'in_progress', 'assigned', 'paused'].includes(t.status);
         if (reportFilter === 'pending_validation') return t.status === 'pending_validation';
+        if (reportFilter === 'internal') return t.internal === true;
         return true; // 'all'
     }) : [];
 
-    const filterLabel = reportFilter === 'open' ? 'Open & In Progress' : reportFilter === 'pending_validation' ? 'Pending Validation' : 'All Tickets';
+    const filterLabel = reportFilter === 'open' ? 'Open & In Progress' : reportFilter === 'pending_validation' ? 'Pending Validation' : reportFilter === 'internal' ? 'Internal Tickets' : 'All Tickets';
 
     // Group filtered tickets by floor for display
     const ticketsByFloor: Record<string, TicketData[]> = {};
@@ -956,6 +960,12 @@ export default function RequestsReportPage() {
                                         Pending Validation
                                     </button>
                                 )}
+                                <button
+                                    onClick={() => setReportFilter('internal')}
+                                    className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-all ${reportFilter === 'internal' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                                >
+                                    Internal
+                                </button>
                             </div>
 
                             <button
@@ -1096,9 +1106,9 @@ export default function RequestsReportPage() {
 
                                         {/* Charts */}
                                         <div className="grid grid-cols-2 gap-5 charts-grid items-start mb-4">
-                                            {/* Floor Chart */}
+                                            {/* Floor Chart — updates with active filter */}
                                             <div className="relative bg-white border border-gray-100 rounded-xl p-4 shadow-sm h-[280px] chart-container-print">
-                                                {reportData.charts.floor.labels.length > 0 ? (
+                                                {filteredTickets.length > 0 ? (
                                                     <canvas id="floorChartReq"></canvas>
                                                 ) : (
                                                     <div className="h-full flex flex-col items-center justify-center text-gray-400">
@@ -1107,22 +1117,29 @@ export default function RequestsReportPage() {
                                                 )}
                                             </div>
 
-                                            {/* Category Breakdown Table */}
+                                            {/* Category Breakdown Table — derived from filteredTickets */}
                                             <div className="bg-gray-50 rounded-xl p-4 min-h-[280px]">
                                                 <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-3">Tickets by Category</p>
                                                 <div className="space-y-2">
                                                     {(() => {
-                                                        const labels = reportData.charts.department.labels;
-                                                        const openArr = reportData.charts.department.open;
-                                                        const closedArr = reportData.charts.department.closed;
-                                                        const rows = labels.map((label: string, i: number) => ({
+                                                        const catMap: Record<string, { open: number; closed: number }> = {};
+                                                        filteredTickets.forEach(t => {
+                                                            const cat = t.category || 'Other';
+                                                            if (!catMap[cat]) catMap[cat] = { open: 0, closed: 0 };
+                                                            if (['closed', 'resolved'].includes(t.status)) catMap[cat].closed++;
+                                                            else catMap[cat].open++;
+                                                        });
+                                                        const rows = Object.entries(catMap).map(([label, v]) => ({
                                                             label,
-                                                            open: openArr[i] || 0,
-                                                            closed: closedArr[i] || 0,
-                                                            total: (openArr[i] || 0) + (closedArr[i] || 0),
-                                                        })).sort((a: any, b: any) => b.total - a.total);
+                                                            open: v.open,
+                                                            closed: v.closed,
+                                                            total: v.open + v.closed,
+                                                        })).sort((a, b) => b.total - a.total);
+                                                        if (rows.length === 0) return (
+                                                            <p className="text-sm text-gray-400 text-center mt-8">No tickets in this filter</p>
+                                                        );
                                                         const max = rows[0]?.total || 1;
-                                                        return rows.map((row: any, i: number) => (
+                                                        return rows.map((row, i) => (
                                                             <div key={i} className="group">
                                                                 <div className="flex items-center justify-between mb-0.5">
                                                                     <span className="text-xs font-semibold text-gray-700 truncate max-w-[60%]">{row.label}</span>

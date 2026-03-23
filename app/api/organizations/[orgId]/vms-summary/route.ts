@@ -10,7 +10,7 @@ export async function GET(
     const supabase = await createClient();
     const { searchParams } = new URL(request.url);
 
-    const period = searchParams.get('period') || 'today'; // 'today' | 'week' | 'month'
+    const period = searchParams.get('period') || 'today'; // 'today' | 'week' | 'month' | 'all'
 
     // Fetch all properties in the org
     const { data: properties, error: propError } = await supabase
@@ -25,29 +25,48 @@ export async function GET(
     const propertyIds = properties?.map((p: any) => p.id) || [];
 
     // Calculate date range
-    const now = new Date();
-    let startDate = new Date();
+    let startDate: Date | null = null;
 
     if (period === 'today') {
+        startDate = new Date();
         startDate.setHours(0, 0, 0, 0);
     } else if (period === 'week') {
+        startDate = new Date();
         startDate.setDate(startDate.getDate() - 7);
     } else if (period === 'month') {
-        startDate.setMonth(startDate.getMonth() - 1);
+        startDate = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
+        startDate.setHours(0, 0, 0, 0);
+    }
+    // 'all' → startDate remains null → no date filter applied
+
+    // Fetch all visitors for these properties (paginated to bypass 1000-row cap)
+    let allVisitors: any[] = [];
+    const PAGE_SIZE = 1000;
+    let from = 0;
+
+    while (true) {
+        let pageQuery = supabase
+            .from('visitor_logs')
+            .select('id, property_id, status, checkin_time, checkout_time')
+            .in('property_id', propertyIds)
+            .range(from, from + PAGE_SIZE - 1);
+
+        if (startDate) pageQuery = pageQuery.gte('checkin_time', startDate.toISOString());
+
+        const { data: page, error: pageErr } = await pageQuery;
+        if (pageErr || !page || page.length === 0) break;
+        allVisitors = allVisitors.concat(page);
+        if (page.length < PAGE_SIZE) break;
+        from += PAGE_SIZE;
     }
 
-    // Fetch all visitors for these properties
-    const { data: visitors } = await supabase
-        .from('visitor_logs')
-        .select('*')
-        .in('property_id', propertyIds)
-        .gte('checkin_time', startDate.toISOString());
+    const visitors = allVisitors;
 
     // Process data per property
     const propertyBreakdown = properties?.map(prop => {
         const propVisitors = visitors?.filter((v: any) => v.property_id === prop.id) || [];
-        const checkedIn = propVisitors.filter((v: any) => v.status === 'checked_in').length;
-        const checkedOut = propVisitors.filter((v: any) => v.status === 'checked_out').length;
+        const checkedIn = propVisitors.filter((v: any) => !v.checkout_time && v.status !== 'checked_out').length;
+        const checkedOut = propVisitors.filter((v: any) => !!v.checkout_time || v.status === 'checked_out').length;
 
         // Calculate this week's visitors
         const weekAgo = new Date();
@@ -73,10 +92,10 @@ export async function GET(
     // Sort by today's visitors descending
     propertyBreakdown.sort((a, b) => b.today - a.today);
 
-    // Calculate totals
+    // Calculate totals using checkout_time as the reliable indicator
     const totalVisitors = visitors?.length || 0;
-    const totalCheckedIn = visitors?.filter((v: any) => v.status === 'checked_in').length || 0;
-    const totalCheckedOut = visitors?.filter((v: any) => v.status === 'checked_out').length || 0;
+    const totalCheckedIn = visitors?.filter((v: any) => !v.checkout_time && v.status !== 'checked_out').length || 0;
+    const totalCheckedOut = visitors?.filter((v: any) => !!v.checkout_time || v.status === 'checked_out').length || 0;
 
     return NextResponse.json({
         organization_id: orgId,

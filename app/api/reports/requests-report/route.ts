@@ -60,6 +60,7 @@ export async function GET(request: NextRequest) {
                 photo_before_url,
                 photo_after_url,
                 ticket_number,
+                internal,
                 issue_category:category_id(id, name, code),
                 raiser:raised_by(id, full_name, email),
                 assignee:assigned_to(id, full_name, email)
@@ -183,6 +184,7 @@ export async function GET(request: NextRequest) {
                 beforePhoto: (ticket as any).photo_before_url,
                 afterPhoto: (ticket as any).photo_after_url,
                 ticketNumberDisplay: ticket.ticket_number || `#${ticket.id.slice(0, 8).toUpperCase()}`,
+                internal: !!(ticket as any).internal,
             };
         });
 

@@ -343,7 +343,8 @@ export default function TenantTicketingDashboard({
                                         <span>Camera</span>
                                     </button>
 
-                                    {/* Critical Priority Toggle */}
+                                    {/* Critical Priority Toggle - only for tenants */}
+                                    {!isStaff && (
                                     <button
                                         onClick={() => setIsCritical(!isCritical)}
                                         className={`flex items-center justify-center gap-2 transition-all text-[10px] font-black uppercase tracking-widest px-4 py-2.5 rounded-xl border ${isCritical
@@ -354,6 +355,7 @@ export default function TenantTicketingDashboard({
                                         <Activity className={`w-4 h-4 ${isCritical ? 'text-white' : 'text-rose-500'}`} />
                                         <span>{isCritical ? 'Critical Request' : 'Mark Critical'}</span>
                                     </button>
+                                    )}
                                 </div>
                                 <button
                                     onClick={handleSubmit}

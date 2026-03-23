@@ -5,7 +5,7 @@ import { createAdminClient } from '@/frontend/utils/supabase/admin';
 /**
  * GET /api/escalation/hierarchies/[id]
  */
-export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+export async function GET(_request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   console.log(`>>> [Escalation Hierarchy] GET ID: ${id}`);
   try {
@@ -102,8 +102,27 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
     }
 
     if (Array.isArray(levels)) {
+      // Level cap
+      if (levels.length > 10) {
+        return NextResponse.json({ error: 'A hierarchy may have at most 10 escalation levels' }, { status: 400 });
+      }
+
+      // Validate employee_ids exist
+      const employeeIds = levels.map((l: any) => l.employee_id).filter(Boolean) as string[];
+      if (employeeIds.length > 0) {
+        const adminClient2 = createAdminClient();
+        const { data: foundUsers } = await adminClient2.from('users').select('id').in('id', employeeIds);
+        const foundIds = new Set((foundUsers || []).map((u: any) => u.id));
+        const missing = employeeIds.filter(eid => !foundIds.has(eid));
+        if (missing.length > 0) {
+          return NextResponse.json({ error: `Employee(s) not found: ${missing.join(', ')}` }, { status: 400 });
+        }
+      }
+
       console.log('[Escalation Hierarchy] PUT Replacing levels...');
-      await supabase.from('escalation_levels').delete().eq('hierarchy_id', id);
+      // Use adminClient so the delete+insert are not blocked by user-scoped RLS on escalation_levels
+      const adminForLevels = createAdminClient();
+      await adminForLevels.from('escalation_levels').delete().eq('hierarchy_id', id);
 
       if (levels.length > 0) {
         const levelRows = levels.map((lvl: any, i: number) => ({
@@ -114,7 +133,7 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
           notification_channels: lvl.notification_channels ?? ['push', 'email'],
         }));
 
-        const { error: levelsErr } = await supabase.from('escalation_levels').insert(levelRows);
+        const { error: levelsErr } = await adminForLevels.from('escalation_levels').insert(levelRows);
         if (levelsErr) {
           console.error('[Escalation Hierarchy] PUT Levels Error:', levelsErr);
           return NextResponse.json({ error: levelsErr.message }, { status: 500 });
@@ -133,28 +152,46 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
 /**
  * DELETE /api/escalation/hierarchies/[id]
  */
-export async function DELETE(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+export async function DELETE(_request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  console.log(`>>> [Escalation Hierarchy] DELETE ID: ${id}`);
   try {
     const supabase = await createClient();
     const { data: { user }, error: authError } = await supabase.auth.getUser();
     if (authError || !user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-    const { error } = await supabase
+    const adminClient = createAdminClient();
+
+    // Safety check: block deletion if any open tickets still reference this hierarchy.
+    // Deleting it would leave those tickets with a dangling hierarchy_id and crash the escalation cron.
+    const { data: activeTickets, error: ticketCheckErr } = await adminClient
+      .from('tickets')
+      .select('id')
+      .eq('hierarchy_id', id)
+      .not('status', 'in', '(resolved,closed)')
+      .limit(1);
+
+    if (ticketCheckErr) {
+      return NextResponse.json({ error: 'Failed to verify active tickets' }, { status: 500 });
+    }
+
+    if (activeTickets && activeTickets.length > 0) {
+      return NextResponse.json(
+        { error: 'Cannot delete: this hierarchy is assigned to one or more active tickets. Resolve or reassign those tickets first.' },
+        { status: 409 }
+      );
+    }
+
+    const { error } = await adminClient
       .from('escalation_hierarchies')
       .delete()
       .eq('id', id);
 
     if (error) {
-      console.error('[Escalation Hierarchy] DELETE Error:', error);
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
-    console.log(`[Escalation Hierarchy] DELETE Success for ID: ${id}`);
     return NextResponse.json({ success: true });
   } catch (err: any) {
-    console.error('[Escalation Hierarchy] DELETE Server Error:', err);
     return NextResponse.json({ error: err.message }, { status: 500 });
   }
 }

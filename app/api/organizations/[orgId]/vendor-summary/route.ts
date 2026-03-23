@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@/frontend/utils/supabase/server';
+import { supabaseAdmin } from '@/backend/lib/supabase/admin';
 
 // GET: Organization-wide vendor revenue summary (Super Admin)
 export async function GET(
@@ -7,13 +7,12 @@ export async function GET(
     { params }: { params: Promise<{ orgId: string }> }
 ) {
     const { orgId } = await params;
-    const supabase = await createClient();
     const { searchParams } = new URL(request.url);
 
     const period = searchParams.get('period') || 'today'; // 'today' | 'month' | 'year'
 
     // Fetch all properties in the org
-    const { data: properties, error: propError } = await supabase
+    const { data: properties, error: propError } = await supabaseAdmin
         .from('properties')
         .select('id, name')
         .eq('organization_id', orgId);
@@ -24,61 +23,84 @@ export async function GET(
 
     const propertyIds = properties?.map((p: any) => p.id) || [];
 
-    // Fetch all vendors for these properties
-    const { data: vendors } = await supabase
-        .from('vendors')
-        .select(`
-            id, shop_name, owner_name, commission_rate, property_id,
-            vendor_daily_revenue(revenue_amount, revenue_date)
-        `)
-        .in('property_id', propertyIds);
-
-    // Calculate date filter
-    const today = new Date().toISOString().split('T')[0];
-
-    // Use string comparison for dates to avoid timezone issues
-    const monthStartStr = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0];
-    const yearStartStr = new Date(new Date().getFullYear(), 0, 1).toISOString().split('T')[0];
-
-    // Process data
-    let totalRevenue = 0;
-    let totalCommission = 0;
-    const propertyBreakdown: any[] = [];
-
-    for (const prop of properties || []) {
-        const propVendors = vendors?.filter((v: any) => v.property_id === prop.id) || [];
-        let propRevenue = 0;
-        let propCommission = 0;
-
-        for (const vendor of propVendors) {
-            const entries = vendor.vendor_daily_revenue?.filter((e: any) => {
-                if (period === 'today') return e.revenue_date === today;
-                if (period === 'month') return e.revenue_date >= monthStartStr;
-                if (period === 'year') return e.revenue_date >= yearStartStr;
-                return true;
-            }) || [];
-
-            const vendorRevenue = entries.reduce((sum: number, e: any) => sum + e.revenue_amount, 0);
-            const vendorCommission = vendorRevenue * (vendor.commission_rate / 100);
-
-            propRevenue += vendorRevenue;
-            propCommission += vendorCommission;
-        }
-
-        propertyBreakdown.push({
-            property_id: prop.id,
-            property_name: prop.name,
-            vendor_count: propVendors.length,
-            total_revenue: propRevenue,
-            total_commission: propCommission,
+    if (propertyIds.length === 0) {
+        return NextResponse.json({
+            organization_id: orgId,
+            period,
+            total_revenue: 0,
+            total_commission: 0,
+            total_vendors: 0,
+            properties: [],
         });
-
-        totalRevenue += propRevenue;
-        totalCommission += propCommission;
     }
 
-    // Sort by revenue descending
-    propertyBreakdown.sort((a, b) => b.total_revenue - a.total_revenue);
+    // Fetch vendors (for count and commission rates)
+    const { data: vendors, error: vendorErr } = await supabaseAdmin
+        .from('vendors')
+        .select('id, property_id, commission_rate')
+        .in('property_id', propertyIds);
+
+    if (vendorErr) {
+        return NextResponse.json({ error: vendorErr.message }, { status: 500 });
+    }
+
+    // Build a map: vendor_id -> commission_rate
+    const commissionMap: Record<string, number> = {};
+    for (const v of vendors || []) {
+        commissionMap[v.id] = v.commission_rate || 0;
+    }
+
+    // Date filter strings
+    const today = new Date().toISOString().split('T')[0];
+    const monthStartStr = new Date(new Date().getFullYear(), new Date().getMonth(), 1)
+        .toISOString().split('T')[0];
+    const yearStartStr = new Date(new Date().getFullYear(), 0, 1)
+        .toISOString().split('T')[0];
+
+    // Directly query vendor_daily_revenue with property_id filter + date filter
+    let revenueQuery = supabaseAdmin
+        .from('vendor_daily_revenue')
+        .select('vendor_id, property_id, revenue_amount, revenue_date')
+        .in('property_id', propertyIds);
+
+    if (period === 'today') revenueQuery = revenueQuery.eq('revenue_date', today);
+    else if (period === 'month') revenueQuery = revenueQuery.gte('revenue_date', monthStartStr);
+    else if (period === 'year') revenueQuery = revenueQuery.gte('revenue_date', yearStartStr);
+
+    const { data: revenueRows, error: revErr } = await revenueQuery;
+
+    if (revErr) {
+        return NextResponse.json({ error: revErr.message }, { status: 500 });
+    }
+
+    // Aggregate per property
+    const propRevenueMap: Record<string, { revenue: number; commission: number }> = {};
+    for (const row of revenueRows || []) {
+        const pid = row.property_id;
+        if (!propRevenueMap[pid]) propRevenueMap[pid] = { revenue: 0, commission: 0 };
+        const amount = row.revenue_amount || 0;
+        propRevenueMap[pid].revenue += amount;
+        propRevenueMap[pid].commission += amount * ((commissionMap[row.vendor_id] || 0) / 100);
+    }
+
+    let totalRevenue = 0;
+    let totalCommission = 0;
+
+    const propertyBreakdown = (properties || []).map((prop: any) => {
+        const stats = propRevenueMap[prop.id] || { revenue: 0, commission: 0 };
+        const vendorCount = (vendors || []).filter((v: any) => v.property_id === prop.id).length;
+        totalRevenue += stats.revenue;
+        totalCommission += stats.commission;
+        return {
+            property_id: prop.id,
+            property_name: prop.name,
+            vendor_count: vendorCount,
+            total_revenue: stats.revenue,
+            total_commission: stats.commission,
+        };
+    });
+
+    propertyBreakdown.sort((a: any, b: any) => b.total_revenue - a.total_revenue);
 
     return NextResponse.json({
         organization_id: orgId,
