@@ -155,6 +155,10 @@ export class WhatsAppService {
         );
     }
 
+    static async sendAsync(phone: string, options: WhatsAppOptions): Promise<void> {
+        await WhatsAppService._send(phone, options);
+    }
+
     static async sendToUser(userId: string, options: WhatsAppOptions): Promise<void> {
         console.log('>>>>>>>>>> [WHATSAPP] sendToUser() for userId:', userId);
         const phone = await this.getPhone(userId);

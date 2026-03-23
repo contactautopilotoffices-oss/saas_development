@@ -39,9 +39,10 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: usersErr.message }, { status: 500 });
     }
 
-    const allUsers = (users || []).filter(u => u.phone);
+    const allUsers = (users || []).filter(u => u.phone && u.phone.trim().length >= 10);
+    const noPhoneCount = (users || []).length - allUsers.length;
     if (allUsers.length === 0) {
-        return NextResponse.json({ sent: 0, skipped: 0, message: 'No users with phone numbers found' });
+        return NextResponse.json({ sent: 0, skipped: 0, no_phone: noPhoneCount, message: 'No users with phone numbers found' });
     }
 
     let sent = 0;
@@ -54,13 +55,15 @@ export async function POST(request: NextRequest) {
                 ? customMessage.replace(/\{\{full_name\}\}/g, name)
                 : buildWelcomeMessage(name);
 
-            WhatsAppService.send(u.phone, { message });
+            await WhatsAppService.sendAsync(u.phone, { message });
             sent++;
+            // Rate limit: 1 message per second to avoid WaSender API throttling
+            if (sent < allUsers.length) await new Promise(r => setTimeout(r, 1000));
         } catch {
             skipped++;
         }
     }
 
-    return NextResponse.json({ sent, skipped, total: allUsers.length });
+    return NextResponse.json({ sent, skipped, no_phone: noPhoneCount, total: (users || []).length });
 }
 
