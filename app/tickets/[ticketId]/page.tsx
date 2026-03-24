@@ -134,7 +134,6 @@ export default function TicketDetailPage() {
     const [loading, setLoading] = useState(true);
     const [fetchError, setFetchError] = useState<string | null>(null);
     const [commentText, setCommentText] = useState('');
-    const [isInternalComment, setIsInternalComment] = useState(false);
     const [uploading, setUploading] = useState(false);
 
     // Reassign State
@@ -762,20 +761,25 @@ export default function TicketDetailPage() {
     const handlePostComment = async () => {
         if (!commentText.trim()) return;
         try {
-            const { error } = await supabase
-                .from('ticket_comments')
-                .insert({
-                    ticket_id: ticketId,
-                    user_id: userId,
-                    comment: commentText,
-                    is_internal: isInternalComment
-                });
+            const res = await fetch(`/api/tickets/${ticketId}/comments`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ comment: commentText })
+            });
 
-            if (error) throw error;
+            if (!res.ok) {
+                const data = await res.json();
+                throw new Error(data.error || 'Failed to post comment');
+            }
+
+            const newComment = await res.json();
+            setComments(prev => [...prev, newComment]);
+
             setCommentText('');
-            await logActivity('comment_added', null, isInternalComment ? 'Internal Note' : 'Comment');
-        } catch (err) {
-            showToast('Failed to post comment', 'error');
+            await logActivity('comment_added', null, 'Comment');
+        } catch (err: any) {
+            console.error('Post Comment Error:', err);
+            showToast(err.message || 'Failed to post comment', 'error');
         }
     };
 
@@ -1769,14 +1773,10 @@ export default function TicketDetailPage() {
                                         <div key={comment.id} className={`w-full flex flex-col ${isMe ? 'items-end' : 'items-start'}`}>
                                             <div className={`relative max-w-[85%] px-4 py-3 rounded-2xl shadow-sm ${isMe ?
                                                 `bg-primary text-white rounded-tr-none` :
-                                                comment.is_internal ?
-                                                    (isDark ? 'bg-warning/10 text-warning border border-warning/20 rounded-tl-none' : 'bg-warning/5 text-warning-dark border border-warning/10 rounded-tl-none') :
-                                                    (isDark ? 'bg-[#21262d] text-slate-200 rounded-tl-none' : 'bg-slate-100 text-slate-800 rounded-tl-none')
+                                                (isDark ? 'bg-[#21262d] text-slate-200 rounded-tl-none' : 'bg-slate-100 text-slate-800 rounded-tl-none')
                                                 }`}>
-                                                <div className={`text-[8px] font-black uppercase tracking-widest ${isMe ? 'text-primary-light' : (isDark ? 'text-warning' : 'text-warning-dark')} mb-1 flex items-center gap-1`}>
-                                                    {comment.is_internal && <ShieldAlert className="w-2.5 h-2.5" />}
+                                                <div className={`text-[8px] font-black uppercase tracking-widest ${isMe ? 'text-primary-light' : (isDark ? 'text-slate-500' : 'text-slate-400')} mb-1 flex items-center gap-1`}>
                                                     {comment.user?.full_name || 'System'} • {new Date(comment.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                                                    {comment.is_internal && <span className="ml-1 opacity-60">(Internal)</span>}
                                                 </div>
                                                 <p className="leading-relaxed font-medium">{comment.comment}</p>
                                             </div>
@@ -1794,21 +1794,6 @@ export default function TicketDetailPage() {
                             </div>
 
                             <div className={`p-4 ${isDark ? 'bg-[#0d1117] border-[#21262d]' : 'bg-slate-50 border-slate-100'} border-t rounded-b-3xl`}>
-                                {canManage && (
-                                    <div className="flex items-center gap-2 mb-3">
-                                        <label className="flex items-center gap-2 cursor-pointer group">
-                                            <input
-                                                type="checkbox"
-                                                checked={isInternalComment}
-                                                onChange={(e) => setIsInternalComment(e.target.checked)}
-                                                className={`rounded ${isDark ? 'border-[#30363d] bg-[#161b22]' : 'border-slate-300 bg-white'} text-primary focus:ring-primary`}
-                                            />
-                                            <span className={`text-[10px] font-black uppercase tracking-widest ${isInternalComment ? 'text-warning' : (isDark ? 'text-slate-500' : 'text-slate-400')} group-hover:text-primary transition-colors`}>
-                                                Internal Note
-                                            </span>
-                                        </label>
-                                    </div>
-                                )}
                                 <div className="flex gap-2">
                                     <input
                                         type="text"

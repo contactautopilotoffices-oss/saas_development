@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse, after } from 'next/server';
 import { hkdfSync, createDecipheriv } from 'crypto';
 import { tmpdir } from 'os';
 import { join } from 'path';
@@ -652,17 +652,19 @@ export async function POST(request: NextRequest) {
             await supabaseAdmin.from('whatsapp_sessions').delete().ilike('phone', `%${last10}`);
             console.log('[WA WEBHOOK] [POLL] Session deleted — calling processIncomingMessage with propertyId:', selectedProperty.id);
 
-            processIncomingMessage(
-                session.phone,
-                session.pending_text || '',
-                session.pending_media_url,
-                session.pending_media_key,
-                session.pending_is_image,
-                session.pending_video_url,
-                session.pending_video_key,
-                session.pending_is_video,
-                selectedProperty.id,
-            ).catch(err => console.error('[WA WEBHOOK] [POLL] Post-poll processing error:', err));
+            after(
+                processIncomingMessage(
+                    session.phone,
+                    session.pending_text || '',
+                    session.pending_media_url,
+                    session.pending_media_key,
+                    session.pending_is_image,
+                    session.pending_video_url,
+                    session.pending_video_key,
+                    session.pending_is_video,
+                    selectedProperty.id,
+                ).catch(err => console.error('[WA WEBHOOK] [POLL] Post-poll processing error:', err))
+            );
 
             return NextResponse.json({ ok: true });
         }
@@ -709,10 +711,12 @@ export async function POST(request: NextRequest) {
         }
 
         // ── Respond immediately so WasenderAPI doesn't time out ──────────────
-        // All heavy work (Groq, DB, media processing, notifications) runs in background
-        processIncomingMessage(senderPhone, messageText, mediaUrl, mediaKey, isImage, videoUrl, videoKey, isVideo).catch(err => {
-            console.error('[WA WEBHOOK] Background processing error:', err);
-        });
+        // after() keeps the Vercel function alive until background work completes
+        after(
+            processIncomingMessage(senderPhone, messageText, mediaUrl, mediaKey, isImage, videoUrl, videoKey, isVideo).catch(err => {
+                console.error('[WA WEBHOOK] Background processing error:', err);
+            })
+        );
 
         return NextResponse.json({ ok: true });
 

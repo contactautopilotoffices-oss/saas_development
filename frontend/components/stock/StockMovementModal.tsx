@@ -116,8 +116,16 @@ const StockMovementModal: React.FC<StockMovementModalProps> = ({
 
     useEffect(() => {
         if (preSelectedItemId && items.length > 0) {
-            const item = items.find(i => i.id === preSelectedItemId);
-            if (item) { setSelectedItem(item); setStep('action'); }
+            // Support finding by ID, barcode, or item_code
+            const item = items.find(i => 
+                i.id === preSelectedItemId || 
+                i.barcode === preSelectedItemId || 
+                i.item_code === preSelectedItemId
+            );
+            if (item) { 
+                setSelectedItem(item); 
+                setStep('action'); 
+            }
         }
     }, [preSelectedItemId, items]);
 

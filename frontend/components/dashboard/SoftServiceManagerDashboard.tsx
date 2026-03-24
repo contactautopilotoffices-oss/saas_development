@@ -230,10 +230,9 @@ const SoftServiceManagerDashboard: React.FC<SoftServiceManagerDashboardProps> = 
                         if (result.type === 'checklist') {
                             router.push(`/checklist/${result.templateId}`);
                         } else if (result.type === 'stock') {
-                            setPreSelectedStockItemId(result.itemId);
-                            setShowScannerModal(true);
+                            router.push(`/property/${propertyId}/soft-service-manager?tab=stock&scanItem=${result.itemId}`);
                         } else if (result.type === 'barcode') {
-                            router.push(`/properties/${propertyId}/stock?barcode=${encodeURIComponent(result.value)}`);
+                            router.push(`/property/${propertyId}/soft-service-manager?tab=stock&scanItem=${result.value}`);
                         }
                     }}
                 />
@@ -278,7 +277,7 @@ const SoftServiceManagerDashboard: React.FC<SoftServiceManagerDashboardProps> = 
                             className="h-full"
                         >
                             {activeTab === 'stock' && (
-                                <StockDashboard propertyId={propertyId} hideReports={true} />
+                                <StockDashboard propertyId={propertyId} hideReports={true} initialItemId={searchParams?.get('scanItem') ?? undefined} />
                             )}
 
                             {activeTab === 'scanner' && (

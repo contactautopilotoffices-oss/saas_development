@@ -28,6 +28,7 @@ interface AuthContextType {
     signUp: (email: string, password: string, fullName: string) => Promise<any>;
     signInWithGoogle: (propertyCode?: string, redirectPath?: string) => Promise<void>;
     signInWithApple: (propertyCode?: string, redirectPath?: string) => Promise<void>;
+    signInWithZoho: (propertyCode?: string, redirectPath?: string) => void;
     signOut: () => Promise<void>;
     resetPassword: (email: string) => Promise<void>;
     // Cache helpers
@@ -280,6 +281,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (error) throw error;
     }, [supabase]);
 
+    const signInWithZoho = useCallback((propertyCode?: string, redirectPath?: string) => {
+        const url = new URL('/api/auth/zoho', window.location.origin);
+        if (redirectPath) url.searchParams.set('redirect', redirectPath);
+        if (propertyCode) url.searchParams.set('propertyCode', propertyCode);
+        window.location.href = url.toString();
+    }, []);
+
     // Memoize the context value to prevent unnecessary re-renders
     const value = useMemo(() => ({
         user,
@@ -291,10 +299,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         signUp,
         signInWithGoogle,
         signInWithApple,
+        signInWithZoho,
         signOut,
         resetPassword,
         refreshMembership
-    }), [user, session, isLoading, membership, isMembershipLoading, signIn, signUp, signInWithGoogle, signInWithApple, signOut, resetPassword, refreshMembership]);
+    }), [user, session, isLoading, membership, isMembershipLoading, signIn, signUp, signInWithGoogle, signInWithApple, signInWithZoho, signOut, resetPassword, refreshMembership]);
 
     return (
         <AuthContext.Provider value={value}>

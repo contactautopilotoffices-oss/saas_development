@@ -856,9 +856,9 @@ const MstDashboard = () => {
                         if (result.type === 'checklist') {
                             router.push(`/checklist/${result.templateId}`);
                         } else if (result.type === 'stock') {
-                            router.push(`/properties/${propertyId}/stock?item=${result.itemId}`);
+                            router.push(`/property/${propertyId}/stock/scan?item=${result.itemId}`);
                         } else if (result.type === 'barcode') {
-                            router.push(`/properties/${propertyId}/stock?barcode=${encodeURIComponent(result.value)}`);
+                            router.push(`/property/${propertyId}/stock/scan?barcode=${encodeURIComponent(result.value)}`);
                         }
                     }}
                     onClose={() => setShowQRScanner(false)}

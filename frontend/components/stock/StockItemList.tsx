@@ -20,6 +20,7 @@ interface StockItemListProps {
     propertyId: string;
     onRefresh?: () => void;
     propertyCode?: string;
+    initialSearch?: string;
 }
 
 interface StockItem {
@@ -39,10 +40,10 @@ interface StockItem {
     description?: string;
 }
 
-const StockItemList: React.FC<StockItemListProps> = ({ propertyId, onRefresh, propertyCode }) => {
+const StockItemList: React.FC<StockItemListProps> = ({ propertyId, onRefresh, propertyCode, initialSearch }) => {
     const [items, setItems] = useState<StockItem[]>([]);
     const [isLoading, setIsLoading] = useState(true);
-    const [searchTerm, setSearchTerm] = useState('');
+    const [searchTerm, setSearchTerm] = useState(initialSearch || '');
     const [categoryFilter, setCategoryFilter] = useState('');
     const [showFormModal, setShowFormModal] = useState(false);
     const [editingItem, setEditingItem] = useState<StockItem | null>(null);
@@ -161,7 +162,9 @@ const StockItemList: React.FC<StockItemListProps> = ({ propertyId, onRefresh, pr
 
     const filteredItems = items.filter(item => {
         const matchesSearch = item.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            item.item_code.toLowerCase().includes(searchTerm.toLowerCase());
+            item.item_code.toLowerCase().includes(searchTerm.toLowerCase()) ||
+            (item.barcode && item.barcode.toLowerCase().includes(searchTerm.toLowerCase())) ||
+            item.id.toLowerCase().includes(searchTerm.toLowerCase());
         const matchesCategory = !categoryFilter || item.category === categoryFilter;
         return matchesSearch && matchesCategory;
     });

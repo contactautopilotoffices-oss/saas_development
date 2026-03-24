@@ -103,7 +103,8 @@ const OrgAdminDashboard = () => {
     // Restore showRequestsList, filter, and selectedPropertyId from URL on mount/back navigation
     useEffect(() => {
         const view = searchParams.get('view');
-        setShowRequestsList(view === 'list');
+        // Default to list view if no view is provided, or if explicitly set to list
+        setShowRequestsList(view !== 'board');
         const filter = searchParams.get('filter');
         if (filter) {
             setPendingStatusFilter(filter);
@@ -458,10 +459,14 @@ const OrgAdminDashboard = () => {
         } else {
             url.searchParams.delete('filter');
         }
-        // Clear view param when leaving requests tab
+        
         if (tab !== 'requests') {
             url.searchParams.delete('view');
+        } else {
+            url.searchParams.set('view', 'list');
+            setShowRequestsList(true);
         }
+        
         window.history.pushState({}, '', url.toString());
     };
 

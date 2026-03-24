@@ -685,7 +685,7 @@ const PropertyAdminDashboard = () => {
                         {activeTab === 'diesel_analytics' && <DieselAnalyticsDashboard />}
                         {activeTab === 'electricity' && property && <ElectricityStaffDashboard propertyId={property.id} />}
                         {activeTab === 'electricity_analytics' && property && <ElectricityAnalyticsDashboard propertyId={property.id} />}
-                        {activeTab === 'stock' && property && <StockDashboard propertyId={property.id} />}
+                        {activeTab === 'stock' && property && <StockDashboard propertyId={property.id} initialItemId={searchParams.get('scanItem') ?? undefined} />}
                         {activeTab === 'checklist' && property && <SOPDashboard propertyId={property.id} />}
                         {activeTab === 'escalation' && property && (
                             <EscalationHierarchyBuilder
@@ -805,10 +805,9 @@ const PropertyAdminDashboard = () => {
                         if (result.type === 'checklist') {
                             router.push(`/checklist/${result.templateId}`);
                         } else if (result.type === 'stock') {
-                            setPreSelectedStockItemId(result.itemId);
-                            setShowScannerModal(true);
+                            router.push(`/property/${propertyId}/dashboard?tab=stock&scanItem=${result.itemId}`);
                         } else if (result.type === 'barcode') {
-                            router.push(`/property/${propertyId}/stock?barcode=${encodeURIComponent(result.value)}`);
+                            router.push(`/property/${propertyId}/dashboard?tab=stock&scanItem=${result.value}`);
                         }
                     }}
                 />

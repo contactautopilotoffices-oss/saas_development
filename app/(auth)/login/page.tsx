@@ -44,7 +44,7 @@ function AuthContent() {
     const [showPassword, setShowPassword] = useState(false);
     const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
-    const { signIn, signUp, signInWithGoogle, resetPassword, signOut } = useAuth();
+    const { signIn, signUp, signInWithGoogle, signInWithZoho, resetPassword, signOut } = useAuth();
     const router = useRouter();
 
     // Memoize supabase client to prevent re-creation on every render
@@ -320,6 +320,10 @@ function AuthContent() {
         }
     };
 
+    const handleZohoAuth = () => {
+        signInWithZoho(undefined, redirectPath || undefined);
+    };
+
 
     return (
         <div className="min-h-screen w-full flex items-center justify-center p-4 font-body overflow-hidden relative bg-background">
@@ -549,6 +553,23 @@ function AuthContent() {
                                                     <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
                                                 </svg>
                                                 Sign in with Google
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={handleZohoAuth}
+                                                className="w-full flex items-center justify-center gap-3 py-2.5 px-4 rounded-[var(--radius-md)] border border-border bg-surface hover:bg-muted transition-smooth font-semibold text-sm text-text-primary"
+                                            >
+                                                <svg className="w-5 h-5 shrink-0" viewBox="0 0 40 40" fill="none">
+                                                    {/* Red — top left */}
+                                                    <rect x="2" y="2" width="17" height="17" rx="2.5" stroke="#E42527" strokeWidth="2.5" transform="rotate(-10 10.5 10.5)"/>
+                                                    {/* Green — top right */}
+                                                    <rect x="21" y="2" width="17" height="17" rx="2.5" stroke="#00A651" strokeWidth="2.5" transform="rotate(10 29.5 10.5)"/>
+                                                    {/* Blue — bottom left */}
+                                                    <rect x="2" y="21" width="17" height="17" rx="2.5" stroke="#0079C1" strokeWidth="2.5" transform="rotate(10 10.5 29.5)"/>
+                                                    {/* Yellow — bottom right */}
+                                                    <rect x="21" y="21" width="17" height="17" rx="2.5" stroke="#FDB924" strokeWidth="2.5" transform="rotate(-10 29.5 29.5)"/>
+                                                </svg>
+                                                Sign in with Zoho
                                             </button>
                                         </div>
                                     </div>

@@ -15,6 +15,8 @@ interface StockDashboardProps {
     propertyId: string;
     hideReports?: boolean;
     hideInventory?: boolean;
+    initialSearch?: string;
+    initialItemId?: string;
 }
 
 interface Movement {
@@ -27,9 +29,10 @@ interface Movement {
     users: { full_name: string } | null;
 }
 
-const StockDashboard: React.FC<StockDashboardProps> = ({ propertyId, hideReports = false, hideInventory = false }) => {
+const StockDashboard: React.FC<StockDashboardProps> = ({ propertyId, hideReports = false, hideInventory = false, initialSearch, initialItemId }) => {
     const [activeSubTab, setActiveSubTab] = useState<SubTab>(hideInventory ? 'movements' : 'inventory');
     const [showMovementModal, setShowMovementModal] = useState(false);
+    const [preSelectedItemId, setPreSelectedItemId] = useState<string | undefined>(undefined);
     const [isLoading, setIsLoading] = useState(true);
     const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
     const [stats, setStats] = useState({ totalItems: 0, lowStockCount: 0, totalValue: 0 });
@@ -104,6 +107,14 @@ const StockDashboard: React.FC<StockDashboardProps> = ({ propertyId, hideReports
         fetchStats();
         fetchPropertyDetails();
     }, [fetchStats, fetchPropertyDetails]);
+
+    // Auto-open movement modal when arriving from a QR scan
+    useEffect(() => {
+        if (initialItemId) {
+            setPreSelectedItemId(initialItemId);
+            setShowMovementModal(true);
+        }
+    }, [initialItemId]);
 
     useEffect(() => {
         if (activeSubTab === 'movements') {
@@ -205,6 +216,7 @@ const StockDashboard: React.FC<StockDashboardProps> = ({ propertyId, hideReports
                                 propertyId={propertyId}
                                 onRefresh={fetchStats}
                                 propertyCode={propertyDetails?.code}
+                                initialSearch={initialSearch}
                             />
                         )}
 
@@ -278,9 +290,10 @@ const StockDashboard: React.FC<StockDashboardProps> = ({ propertyId, hideReports
             {/* Modals */}
             <StockMovementModal
                 isOpen={showMovementModal}
-                onClose={() => setShowMovementModal(false)}
+                onClose={() => { setShowMovementModal(false); setPreSelectedItemId(undefined); }}
                 propertyId={propertyId}
                 onSuccess={handleMovementSuccess}
+                preSelectedItemId={preSelectedItemId}
             />
 
             {/* Toast */}

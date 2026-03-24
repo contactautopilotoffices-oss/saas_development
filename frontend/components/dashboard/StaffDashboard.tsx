@@ -737,6 +737,7 @@ const StaffDashboard = () => {
                                 <StockDashboard
                                     propertyId={property.id}
                                     hideReports={true}
+                                    initialItemId={searchParams.get('scanItem') ?? undefined}
                                 />
                             )}
                             {activeTab === 'checklist' && property && (
@@ -851,10 +852,9 @@ const StaffDashboard = () => {
                             if (result.type === 'checklist') {
                                 router.push(`/checklist/${result.templateId}`);
                             } else if (result.type === 'stock') {
-                                setPreSelectedStockItemId(result.itemId);
-                                setShowScannerModal(true);
+                                router.push(`/property/${propertyId}/staff?tab=stock&scanItem=${result.itemId}`);
                             } else if (result.type === 'barcode') {
-                                router.push(`/properties/${propertyId}/stock?barcode=${encodeURIComponent(result.value)}`);
+                                router.push(`/property/${propertyId}/staff?tab=stock&scanItem=${result.value}`);
                             }
                         }}
                     />
