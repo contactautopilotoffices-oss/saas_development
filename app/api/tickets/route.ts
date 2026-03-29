@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/frontend/utils/supabase/server';
 import { createAdminClient } from '@/frontend/utils/supabase/admin';
+import { createClientFromToken, extractBearerToken } from '@/frontend/utils/supabase/mobile-auth';
 import { resolveClassification, logClassification } from '@/backend/lib/ticketing';
+import { classifyTicketEnhanced } from '@/backend/lib/ticketing/classifyTicket';
 
 // Extract floor number from description
 function extractFloorNumber(description: string): number | null {
@@ -62,15 +64,30 @@ function extractLocation(description: string): string | null {
 
 /**
  * GET /api/tickets
- * Fetch tickets with filters
+ * Fetch tickets with filters.
+ * Supports both cookie-based auth (web) and Bearer token auth (mobile).
  */
 export async function GET(request: NextRequest) {
     try {
-        const supabase = await createClient();
-        const { data: { user }, error: authError } = await supabase.auth.getUser();
+        const bearerToken = extractBearerToken(request.headers.get('authorization'));
+        let supabase: Awaited<ReturnType<typeof createClient>>;
+        let user: any;
 
-        if (authError || !user) {
-            return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+        if (bearerToken) {
+            // Mobile: validate JWT directly, then create a client scoped to that user
+            supabase = createClientFromToken(bearerToken) as any;
+            const { data, error: authError } = await supabase.auth.getUser(bearerToken);
+            if (authError || !data.user) {
+                return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+            }
+            user = data.user;
+        } else {
+            supabase = await createClient();
+            const { data: { user: cookieUser }, error: authError } = await supabase.auth.getUser();
+            if (authError || !cookieUser) {
+                return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+            }
+            user = cookieUser;
         }
 
         const searchParams = request.nextUrl.searchParams;
@@ -81,6 +98,8 @@ export async function GET(request: NextRequest) {
         const assignedTo = searchParams.get('assignedTo');
         const raisedBy = searchParams.get('raisedBy') || searchParams.get('raised_by');
         const raisedByRole = searchParams.get('raisedByRole');
+        const limitParam = searchParams.get('limit');
+        const offsetParam = searchParams.get('offset');
 
         let query = supabase
             .from('tickets')
@@ -93,8 +112,12 @@ export async function GET(request: NextRequest) {
         organization:organizations(id, name, code),
         property:properties(id, name, code),
         ticket_escalation_logs(from_level, to_level, escalated_at, from_employee:users!from_employee_id(full_name, user_photo_url), to_employee:users!to_employee_id(full_name, user_photo_url))
-      `)
-            .order('created_at', { ascending: false });
+      `, { count: 'exact' })
+            .order('created_at', { ascending: false })
+            .range(
+                offsetParam ? parseInt(offsetParam) : 0,
+                offsetParam ? parseInt(offsetParam) + (limitParam ? parseInt(limitParam) : 10000) - 1 : (limitParam ? parseInt(limitParam) - 1 : 9999)
+            );
 
         if (propertyId) query = query.eq('property_id', propertyId);
         if (organizationId) query = query.eq('organization_id', organizationId);
@@ -154,14 +177,14 @@ export async function GET(request: NextRequest) {
             }
         }
 
-        const { data: tickets, error: fetchError } = await query;
+        const { data: tickets, error: fetchError, count } = await query;
 
         if (fetchError) {
             console.error('Error fetching tickets:', fetchError);
             return NextResponse.json({ error: 'Failed to fetch tickets' }, { status: 500 });
         }
 
-        return NextResponse.json({ tickets: tickets || [] });
+        return NextResponse.json({ tickets: tickets || [], total: count ?? (tickets?.length ?? 0) });
     } catch (error) {
         console.error('Tickets API error:', error);
         return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
@@ -170,15 +193,30 @@ export async function GET(request: NextRequest) {
 
 /**
  * POST /api/tickets
- * Create a new ticket with automatic department classification
+ * Create a new ticket with automatic department classification.
+ * Supports both cookie-based auth (web) and Bearer token auth (mobile).
  */
 export async function POST(request: NextRequest) {
     try {
-        const supabase = await createClient();
-        const { data: { user }, error: authError } = await supabase.auth.getUser();
+        // Support Bearer token auth for mobile clients
+        const bearerToken = extractBearerToken(request.headers.get('authorization'));
+        let supabase: Awaited<ReturnType<typeof createClient>>;
+        let user: any;
 
-        if (authError || !user) {
-            return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+        if (bearerToken) {
+            supabase = createClientFromToken(bearerToken) as any;
+            const { data, error: authError } = await supabase.auth.getUser(bearerToken);
+            if (authError || !data.user) {
+                return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+            }
+            user = data.user;
+        } else {
+            supabase = await createClient();
+            const { data: { user: cookieUser }, error: authError } = await supabase.auth.getUser();
+            if (authError || !cookieUser) {
+                return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+            }
+            user = cookieUser;
         }
 
         const body = await request.json();
@@ -206,19 +244,35 @@ export async function POST(request: NextRequest) {
             );
         }
 
-        // 1. Hybrid Classification using enhanced resolver
-        const resolution = await resolveClassification(title || description);
-        const { issue_code, skill_group, confidence, enhancedClassification, zone, decisionSource } = resolution;
-        const isVague = confidence === 'low';
-
-        // 2. Resolve Database IDs (Category & Skill Group)
+        // 1. Quick rule-based pre-pass to get DB priority BEFORE Groq runs
+        const preClassification = classifyTicketEnhanced(title || description);
         let categoryId = null;
         let skillGroupId = null;
         let priority = 'medium';
         let slaHours = 24;
 
-        if (issue_code) {
-            // GLOBAL lookup - no property_id filter
+        if (preClassification.issue_code) {
+            const { data: preCatData } = await supabase
+                .from('issue_categories')
+                .select('id, skill_group_id, priority, sla_hours')
+                .eq('code', preClassification.issue_code)
+                .limit(1)
+                .maybeSingle();
+            if (preCatData) {
+                categoryId = preCatData.id;
+                skillGroupId = preCatData.skill_group_id;
+                priority = preCatData.priority || 'medium';
+                slaHours = preCatData.sla_hours || 24;
+            }
+        }
+
+        // 2. Full hybrid classification — pass DB priority so Groq uses it as anchor
+        const resolution = await resolveClassification(title || description, priority);
+        const { issue_code, skill_group, confidence, enhancedClassification, zone, decisionSource } = resolution;
+        const isVague = confidence === 'low';
+
+        // 3. If Groq resolved a different issue_code, re-fetch IDs
+        if (issue_code && issue_code !== preClassification.issue_code) {
             const { data: catData, error: catError } = await supabase
                 .from('issue_categories')
                 .select('id, skill_group_id, priority, sla_hours')
@@ -233,8 +287,11 @@ export async function POST(request: NextRequest) {
             if (catData) {
                 categoryId = catData.id;
                 skillGroupId = catData.skill_group_id;
-                priority = catData.priority || 'medium';
-                slaHours = catData.sla_hours || 24;
+                const priorityRank: Record<string, number> = { low: 0, medium: 1, high: 2, urgent: 3 };
+                if ((priorityRank[catData.priority] ?? 0) > (priorityRank[priority] ?? 0)) {
+                    priority = catData.priority;
+                }
+                slaHours = catData.sla_hours || slaHours;
             } else {
                 console.warn('[TICKET API] \u26a0\ufe0f Issue code not found in issue_categories:', issue_code);
             }
@@ -274,7 +331,12 @@ export async function POST(request: NextRequest) {
                 description,
                 category_id: categoryId,
                 skill_group_id: skillGroupId,
-                priority: explicitPriority || resolution.priority?.toLowerCase() || priority,
+                priority: (() => {
+                    if (explicitPriority) return explicitPriority;
+                    const priorityRank: Record<string, number> = { low: 0, medium: 1, high: 2, urgent: 3 };
+                    const groqP = resolution.priority?.toLowerCase() || '';
+                    return (priorityRank[groqP] ?? -1) > (priorityRank[priority] ?? -1) ? groqP : priority;
+                })(),
                 status: 'open',
                 raised_by: user.id,
                 internal: internalValue,
