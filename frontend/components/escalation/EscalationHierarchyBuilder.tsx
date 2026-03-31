@@ -836,15 +836,30 @@ export default function EscalationHierarchyBuilder({ organizationId, propertyId,
             </div>
           </div>
 
-          {/* Escalation Levels — grow naturally, page scrolls */}
+          {/* Escalation Levels — highest level on top, level 1 at bottom */}
           <div className="flex-1">
+            {/* Top-right Add Level button */}
+            {levels.length < 6 && (
+              <div className="flex justify-end mb-4 max-w-2xl mx-auto">
+                <button
+                  onClick={addLevel}
+                  className="flex items-center gap-2 px-4 py-2 bg-primary text-white text-xs font-bold rounded-xl hover:bg-primary/90 transition-all shadow-sm"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  Add Level
+                  <span className="ml-1 opacity-70">({6 - levels.length} remaining)</span>
+                </button>
+              </div>
+            )}
             <div className="flex flex-col items-center gap-6 max-w-2xl mx-auto pb-8">
-              {levels.map((level, i) => (
-                <React.Fragment key={i}>
+              {[...levels].reverse().map((level, displayIndex) => {
+                const originalIndex = levels.length - 1 - displayIndex;
+                return (
+                <React.Fragment key={originalIndex}>
                   <div className="w-full flex justify-center">
                     <LevelCard
                       level={level}
-                      levelIndex={i}
+                      levelIndex={originalIndex}
                       onDrop={handleDrop}
                       onDragOver={handleDragOver}
                       onDragLeave={handleDragLeave}
@@ -852,11 +867,11 @@ export default function EscalationHierarchyBuilder({ organizationId, propertyId,
                       onRemoveLevel={removeLevel}
                       onUpdateTime={updateTime}
                       onToggleChannel={toggleChannel}
-                      isDragOver={dragOverLevel === i}
+                      isDragOver={dragOverLevel === originalIndex}
                       canRemove={levels.length > 1}
                     />
                   </div>
-                  {i < levels.length - 1 && (
+                  {displayIndex < levels.length - 1 && (
                     <div className="flex flex-col items-center">
                       <div className="w-px h-6 bg-slate-200" />
                       <div className="w-6 h-6 rounded-full bg-white border border-slate-200 flex items-center justify-center text-slate-400 shadow-sm">
@@ -866,24 +881,9 @@ export default function EscalationHierarchyBuilder({ organizationId, propertyId,
                     </div>
                   )}
                 </React.Fragment>
-              ))}
+                );
+              })}
 
-              {levels.length < 6 && (
-                <div className="w-full max-w-[260px] h-[180px]">
-                  <button
-                    onClick={addLevel}
-                    className="w-full h-full border-2 border-dashed border-slate-200 rounded-2xl flex flex-col items-center justify-center gap-3 text-slate-400 hover:border-primary/40 hover:text-primary hover:bg-primary/5 transition-all group shadow-sm bg-white"
-                  >
-                    <div className="w-10 h-10 rounded-full border-2 border-dashed border-current flex items-center justify-center group-hover:scale-110 transition-transform">
-                      <Plus className="w-5 h-5" />
-                    </div>
-                    <div className="text-center">
-                      <div className="text-xs font-black uppercase tracking-wider">Add Level</div>
-                      <div className="text-[10px] font-medium text-slate-400 mt-1">{6 - levels.length} remaining</div>
-                    </div>
-                  </button>
-                </div>
-              )}
 
               {/* Bottom save bar */}
               <div className="w-full flex items-center justify-between pt-4 border-t border-slate-200 mt-2">

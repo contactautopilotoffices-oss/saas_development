@@ -5,7 +5,7 @@ import {
     LayoutDashboard, Building2, Users, UserPlus, Ticket, Settings, UserCircle,
     Search, Plus, Filter, LogOut, ChevronRight, MapPin, Edit, Trash2, X, Check, UsersRound,
     Coffee, IndianRupee, FileDown, ChevronDown, Fuel, Menu, Upload, FileBarChart, Zap, Package, ClipboardCheck, Scan, Key,
-    AlertCircle, CheckCircle2, Clock, GitBranch, DoorOpen, MessageCircle, Send, Loader2
+    AlertCircle, CheckCircle2, Clock, GitBranch, DoorOpen, MessageCircle, Send, Loader2, CalendarDays, Wrench
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { createClient } from '@/frontend/utils/supabase/client';
@@ -30,9 +30,11 @@ import SOPDashboard from '@/frontend/components/sop/SOPDashboard';
 import PropertyFeaturesModal from './PropertyFeaturesModal';
 import EscalationHierarchyBuilder from '@/frontend/components/escalation/EscalationHierarchyBuilder';
 import AdminRoomManager from '@/frontend/components/meeting-rooms/AdminRoomManager';
+import PPMModule from '@/frontend/components/ppm/PPMModule';
+import VendorManagement from '@/frontend/components/vendors/VendorManagement';
 
 // Types
-type Tab = 'overview' | 'properties' | 'requests' | 'reports' | 'visitors' | 'settings' | 'profile' | 'revenue' | 'users' | 'diesel' | 'electricity' | 'stock_reports' | 'checklist' | 'super_tenants' | 'escalation' | 'rooms';
+type Tab = 'overview' | 'properties' | 'requests' | 'reports' | 'visitors' | 'settings' | 'profile' | 'revenue' | 'users' | 'diesel' | 'electricity' | 'stock_reports' | 'checklist' | 'super_tenants' | 'escalation' | 'rooms' | 'ppm' | 'vendors';
 
 interface Property {
     id: string;
@@ -221,7 +223,7 @@ const OrgAdminDashboard = () => {
     // Restore tab from URL
     useEffect(() => {
         const tab = searchParams.get('tab');
-        if (tab && ['overview', 'properties', 'requests', 'reports', 'visitors', 'settings', 'profile', 'revenue', 'users', 'diesel', 'electricity', 'stock_reports', 'checklist', 'super_tenants', 'escalation', 'rooms'].includes(tab)) {
+        if (tab && ['overview', 'properties', 'requests', 'reports', 'visitors', 'settings', 'profile', 'revenue', 'users', 'diesel', 'electricity', 'stock_reports', 'checklist', 'super_tenants', 'escalation', 'rooms', 'ppm', 'vendors'].includes(tab)) {
             setActiveTab(tab as Tab);
         }
     }, [searchParams]);
@@ -683,6 +685,16 @@ const OrgAdminDashboard = () => {
                                 Checklists
                             </button>
                             <button
+                                onClick={() => handleTabChange('ppm')}
+                                className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 font-bold text-sm ${activeTab === 'ppm'
+                                    ? 'bg-primary text-text-inverse shadow-sm'
+                                    : 'text-text-secondary hover:bg-muted hover:text-text-primary'
+                                    }`}
+                            >
+                                <CalendarDays className="w-4 h-4" />
+                                PPM Calendar
+                            </button>
+                            <button
                                 onClick={() => handleTabChange('escalation')}
                                 className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 font-bold text-sm ${activeTab === 'escalation'
                                     ? 'bg-primary text-text-inverse shadow-sm'
@@ -738,19 +750,21 @@ const OrgAdminDashboard = () => {
 
                 <div className="pt-3 border-t border-border px-4 pb-12 flex-shrink-0 bg-white">
                     {/* User Profile Section */}
-                    <div className="flex items-center gap-2 px-1 mb-2">
-                        <div className="w-8 h-8 bg-primary rounded-full flex items-center justify-center text-text-inverse font-bold text-xs">
-                            {user?.email?.[0].toUpperCase() || 'O'}
+                    {user?.user_metadata?.role !== 'org_super_admin' && (
+                        <div className="flex items-center gap-2 px-1 mb-2">
+                            <div className="w-8 h-8 bg-primary rounded-full flex items-center justify-center text-text-inverse font-bold text-xs">
+                                {user?.email?.[0].toUpperCase() || 'O'}
+                            </div>
+                            <div className="flex flex-col overflow-hidden">
+                                <span className="font-display font-semibold text-xs text-text-primary truncate">
+                                    {user?.user_metadata?.full_name || 'Super Admin'}
+                                </span>
+                                <span className="text-[9px] text-text-tertiary truncate font-body font-medium">
+                                    {user?.email}
+                                </span>
+                            </div>
                         </div>
-                        <div className="flex flex-col overflow-hidden">
-                            <span className="font-display font-semibold text-xs text-text-primary truncate">
-                                {user?.user_metadata?.full_name || 'Super Admin'}
-                            </span>
-                            <span className="text-[9px] text-text-tertiary truncate font-body font-medium">
-                                {user?.email}
-                            </span>
-                        </div>
-                    </div>
+                    )}
 
                     <button
                         onClick={() => setShowSignOutModal(true)}
@@ -769,10 +783,10 @@ const OrgAdminDashboard = () => {
             />
 
             {/* Main Content */}
-            <main className={`flex-1 lg:ml-72 bg-white transition-all duration-300 ${activeTab === 'overview' || activeTab === 'checklist' || activeTab === 'escalation' || activeTab === 'rooms' ? '' : activeTab === 'requests' ? 'pt-16 lg:pt-0 lg:p-12' : 'pt-16 lg:pt-0 p-4 md:p-8 lg:p-12'}`}>
+            <main className={`flex-1 lg:ml-72 bg-white transition-all duration-300 ${activeTab === 'overview' || activeTab === 'checklist' || activeTab === 'escalation' || activeTab === 'rooms' || activeTab === 'ppm' || activeTab === 'vendors' ? '' : activeTab === 'requests' ? 'pt-16 lg:pt-0 lg:p-12' : 'pt-16 lg:pt-0 p-4 md:p-8 lg:p-12'}`}>
 
                 {/* Only show header for non-overview, non-sop, non-escalation tabs */}
-                {activeTab !== 'overview' && activeTab !== 'checklist' && activeTab !== 'escalation' && activeTab !== 'rooms' && (
+                {activeTab !== 'overview' && activeTab !== 'checklist' && activeTab !== 'escalation' && activeTab !== 'rooms' && activeTab !== 'ppm' && activeTab !== 'vendors' && (
                     <header className="fixed top-0 left-0 right-0 lg:static h-16 bg-white border-b border-border/10 flex justify-between items-center px-4 md:px-8 lg:px-0 mb-10 z-30">
                         <div className="flex items-center gap-4">
                             {/* Mobile Menu Toggle */}
@@ -903,7 +917,7 @@ const OrgAdminDashboard = () => {
                         exit={{ opacity: 0, y: -10 }}
                         transition={{ duration: 0.2 }}
                     >
-                        {activeTab === 'overview' && (
+                        <div style={{ display: activeTab === 'overview' ? 'block' : 'none' }}>
                             <OverviewTab
                                 properties={properties}
                                 orgId={org?.id || ''}
@@ -912,7 +926,7 @@ const OrgAdminDashboard = () => {
                                 onMenuToggle={() => setSidebarOpen(true)}
                                 onTabChange={handleTabChange}
                             />
-                        )}
+                        </div>
                         {activeTab === 'revenue' && <RevenueTab properties={properties} selectedPropertyId={selectedPropertyId} />}
                         {activeTab === 'properties' && (
                             <PropertiesTab
@@ -926,30 +940,28 @@ const OrgAdminDashboard = () => {
                                 onDelete={handleDeleteProperty}
                             />
                         )}
-                        {activeTab === 'requests' && (
-                            <div className="h-full">
-                                {showRequestsList ? (
-                                    <TicketsView
-                                        propertyId={selectedPropertyId === 'all' ? undefined : selectedPropertyId}
-                                        canDelete={true}
-                                        initialStatusFilter={pendingStatusFilter}
-                                    />
-                                ) : (
-                                    <AdminSPOCDashboard
-                                        organizationId={org?.id || ''}
-                                        propertyId={selectedPropertyId === 'all' ? undefined : selectedPropertyId}
-                                        propertyName={selectedPropertyId === 'all' ? 'All Properties' : activeProperty?.name}
-                                        adminUser={{
-                                            full_name: user?.user_metadata?.full_name || 'Super Admin',
-                                            avatar_url: ''
-                                        }}
-                                        initialStatusFilter={pendingStatusFilter}
-                                        properties={properties}
-                                        onPropertyChange={handlePropertyChange}
-                                    />
-                                )}
-                            </div>
-                        )}
+                        <div style={{ display: activeTab === 'requests' ? 'block' : 'none' }} className="h-full">
+                            {showRequestsList ? (
+                                <TicketsView
+                                    propertyId={selectedPropertyId === 'all' ? undefined : selectedPropertyId}
+                                    canDelete={true}
+                                    initialStatusFilter={pendingStatusFilter}
+                                />
+                            ) : (
+                                <AdminSPOCDashboard
+                                    organizationId={org?.id || ''}
+                                    propertyId={selectedPropertyId === 'all' ? undefined : selectedPropertyId}
+                                    propertyName={selectedPropertyId === 'all' ? 'All Properties' : activeProperty?.name}
+                                    adminUser={{
+                                        full_name: user?.user_metadata?.full_name || 'Super Admin',
+                                        avatar_url: ''
+                                    }}
+                                    initialStatusFilter={pendingStatusFilter}
+                                    properties={properties}
+                                    onPropertyChange={handlePropertyChange}
+                                />
+                            )}
+                        </div>
 
                         {activeTab === 'visitors' && <VisitorsTab properties={properties} selectedPropertyId={selectedPropertyId} />}
 
@@ -1193,6 +1205,22 @@ const OrgAdminDashboard = () => {
                                         <p className="text-sm text-slate-500 max-w-md">Select a property from the dropdown above to manage its meeting rooms and bookings.</p>
                                     </div>
                                 )}
+                            </div>
+                        )}
+
+                        {activeTab === 'ppm' && org && (
+                            <div className="w-full min-h-screen bg-white">
+                                <PPMModule
+                                    organizationId={org.id}
+                                    propertyId={selectedPropertyId !== 'all' ? selectedPropertyId : undefined}
+                                    properties={properties}
+                                />
+                            </div>
+                        )}
+
+                        {activeTab === 'vendors' && org && (
+                            <div className="w-full min-h-screen bg-white">
+                                <VendorManagement organizationId={org.id} />
                             </div>
                         )}
 
@@ -1464,6 +1492,37 @@ const DieselSphere = ({ percentage }: { percentage: number }) => {
     );
 };
 
+/** Smooth count-up with ease-in-out-cubic: gentle start, fast middle, smooth landing */
+function useCountUp(target: number, duration = 1400): number {
+    const [display, setDisplay] = useState(0);
+    const raf = useRef<number | null>(null);
+    const startRef = useRef<{ from: number; to: number; startTime: number } | null>(null);
+
+    useEffect(() => {
+        // Always animate from whatever is currently displayed
+        const from = display;
+        startRef.current = { from, to: target, startTime: performance.now() };
+
+        const tick = (now: number) => {
+            if (!startRef.current) return;
+            const { from: f, to, startTime } = startRef.current;
+            const t = Math.min((now - startTime) / duration, 1);
+            // ease-in-out-cubic: slow start → accelerates → slow finish
+            const eased = t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+            const current = Math.round(f + (to - f) * eased);
+            setDisplay(current);
+            if (t < 1) raf.current = requestAnimationFrame(tick);
+        };
+
+        if (raf.current) cancelAnimationFrame(raf.current);
+        raf.current = requestAnimationFrame(tick);
+        return () => { if (raf.current) cancelAnimationFrame(raf.current); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [target]);
+
+    return display;
+}
+
 // Sub-components
 const OverviewTab = memo(function OverviewTab({
     properties,
@@ -1482,7 +1541,6 @@ const OverviewTab = memo(function OverviewTab({
 }) {
     const [isLoading, setIsLoading] = useState(true);
     const [isOverviewSelectorOpen, setIsOverviewSelectorOpen] = useState(false);
-    const hasFetched = useRef(false);
 
     // Real data from org APIs
     const [ticketSummary, setTicketSummary] = useState({
@@ -1498,6 +1556,7 @@ const OverviewTab = memo(function OverviewTab({
         avg_resolution_hours: 0,
         properties_with_validation: 0,
         properties: [] as any[],
+        trends: { total: [], resolved: [], active: [], pending: [] } as any,
     });
 
     const [electricitySummary, setElectricitySummary] = useState({
@@ -1524,10 +1583,9 @@ const OverviewTab = memo(function OverviewTab({
         properties: [] as any[],
     });
 
-    // Fetch all org summaries ONCE
+    // Fetch all org summaries on mount and whenever ticketPeriod changes
     useEffect(() => {
         if (!orgId) return;
-        // Fetch all org summaries ONCE (or on period change)
 
         const fetchSummaries = async () => {
             setIsLoading(true);
@@ -1629,6 +1687,7 @@ const OverviewTab = memo(function OverviewTab({
             avg_resolution_hours: 0,
             properties_with_validation: ticketSummary.properties_with_validation,
             properties: ticketSummary.properties,
+            trends: { total: [], resolved: [], active: [], pending: [] },
         };
 
         return {
@@ -1644,6 +1703,7 @@ const OverviewTab = memo(function OverviewTab({
             avg_resolution_hours: ticketSummary.avg_resolution_hours,
             properties_with_validation: propStats.validation_enabled ? 1 : 0,
             properties: ticketSummary.properties,
+            trends: propStats.trends || { total: [], resolved: [], active: [], pending: [] },
         };
     }, [selectedPropertyId, ticketSummary]);
 
@@ -1698,6 +1758,36 @@ const OverviewTab = memo(function OverviewTab({
     const validationEnabledCount = selectedPropertyId === 'all'
         ? displayTicketStats.properties_with_validation
         : (displayTicketStats.properties_with_validation > 0 ? 1 : 0);
+
+    // Animated KPI counters
+    const animatedTotal = useCountUp(displayTicketStats.total_tickets);
+    const animatedActive = useCountUp(activeCount);
+    const animatedResolved = useCountUp(displayTicketStats.resolved);
+    const animatedPending = useCountUp(validationEnabledCount > 0 ? displayTicketStats.pending_validation : 0);
+
+    // Animation variants
+    const containerVariants = {
+        hidden: { opacity: 0 },
+        visible: {
+            opacity: 1,
+            transition: {
+                staggerChildren: 0.1
+            }
+        }
+    };
+
+    const cardVariants: any = {
+        hidden: { opacity: 0, y: 20 },
+        visible: { 
+            opacity: 1, 
+            y: 0,
+            transition: { 
+                type: "spring", 
+                stiffness: 100, 
+                damping: 15 
+            }
+        }
+    };
 
     return (
         <div className="min-h-screen bg-background">
@@ -1824,12 +1914,19 @@ const OverviewTab = memo(function OverviewTab({
                 </div>
 
                 {/* KPI Cards Row — 4 insightful cards */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 mb-5">
+                <motion.div 
+                    className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 mb-5"
+                    variants={containerVariants}
+                    initial="hidden"
+                    animate="visible"
+                >
 
                     {/* Card 1 — Total Tickets */}
-                    <div
+                    <motion.div
+                        variants={cardVariants}
+                        whileHover={{ y: -4, transition: { duration: 0.2 } }}
                         onClick={() => onTabChange('requests', 'all')}
-                        className="bg-white rounded-2xl p-3 border border-slate-100 shadow-sm hover:shadow-md cursor-pointer hover:border-slate-300 transition-all group"
+                        className="bg-white rounded-2xl p-3 border border-slate-100 shadow-sm hover:shadow-md cursor-pointer hover:border-slate-300 transition-all group relative overflow-hidden"
                     >
                         <div className="flex items-center justify-between mb-2">
                             <span className="text-[10px] font-black uppercase tracking-widest text-slate-400 group-hover:text-slate-600 transition-colors">Total Tickets</span>
@@ -1838,7 +1935,7 @@ const OverviewTab = memo(function OverviewTab({
                             </div>
                         </div>
                         <div className="flex items-baseline gap-2 mb-2">
-                            <span className="text-4xl font-black text-slate-900">{displayTicketStats.total_tickets}</span>
+                            <span className="text-4xl font-black text-slate-900">{animatedTotal}</span>
                             <span className="text-xs text-slate-400 font-bold">{completionRate}% resolved</span>
                         </div>
                         {/* Resolution progress bar */}
@@ -1852,12 +1949,14 @@ const OverviewTab = memo(function OverviewTab({
                             <span>{activeCount} active</span>
                             <span>{displayTicketStats.avg_resolution_hours > 0 ? `Avg ${displayTicketStats.avg_resolution_hours}h` : 'No data'}</span>
                         </div>
-                    </div>
+                    </motion.div>
 
                     {/* Card 2 — Open & Active */}
-                    <div
+                    <motion.div
+                        variants={cardVariants}
+                        whileHover={{ y: -4, transition: { duration: 0.2 } }}
                         onClick={() => onTabChange('requests', 'open,assigned,in_progress,blocked')}
-                        className="bg-white rounded-2xl p-3 border border-slate-100 shadow-sm hover:shadow-md cursor-pointer hover:border-blue-200 transition-all group"
+                        className="bg-white rounded-2xl p-3 border border-slate-100 shadow-sm hover:shadow-md cursor-pointer hover:border-blue-200 transition-all group relative overflow-hidden"
                     >
                         <div className="flex items-center justify-between mb-2">
                             <span className="text-[10px] font-black uppercase tracking-widest text-slate-400 group-hover:text-blue-500 transition-colors">Open & Active</span>
@@ -1866,7 +1965,7 @@ const OverviewTab = memo(function OverviewTab({
                             </div>
                         </div>
                         <div className="flex items-baseline gap-2 mb-2">
-                            <span className="text-4xl font-black text-slate-900">{activeCount}</span>
+                            <span className="text-4xl font-black text-slate-900">{animatedActive}</span>
                             {displayTicketStats.sla_breached > 0 && (
                                 <span className="text-[10px] text-rose-500 font-black uppercase bg-rose-50 px-1.5 py-0.5 rounded-md">{displayTicketStats.sla_breached} SLA breach</span>
                             )}
@@ -1891,12 +1990,14 @@ const OverviewTab = memo(function OverviewTab({
                                 </span>
                             )}
                         </div>
-                    </div>
+                    </motion.div>
 
                     {/* Card 3 — Resolved & Validated */}
-                    <div
+                    <motion.div
+                        variants={cardVariants}
+                        whileHover={{ y: -4, transition: { duration: 0.2 } }}
                         onClick={() => onTabChange('requests', 'resolved,closed')}
-                        className="bg-white rounded-2xl p-3 border border-slate-100 shadow-sm hover:shadow-md cursor-pointer hover:border-emerald-200 transition-all group"
+                        className="bg-white rounded-2xl p-3 border border-slate-100 shadow-sm hover:shadow-md cursor-pointer hover:border-emerald-200 transition-all group relative overflow-hidden"
                     >
                         <div className="flex items-center justify-between mb-2">
                             <span className="text-[10px] font-black uppercase tracking-widest text-slate-400 group-hover:text-emerald-500 transition-colors">Resolved & Closed</span>
@@ -1905,7 +2006,7 @@ const OverviewTab = memo(function OverviewTab({
                             </div>
                         </div>
                         <div className="flex items-baseline gap-2 mb-2">
-                            <span className="text-4xl font-black text-slate-900">{displayTicketStats.resolved}</span>
+                            <span className="text-4xl font-black text-slate-900">{animatedResolved}</span>
                             <span className="text-xs text-emerald-500 font-bold">{completionRate}%</span>
                         </div>
                         {/* Validation breakdown bar */}
@@ -1926,12 +2027,14 @@ const OverviewTab = memo(function OverviewTab({
                             )}
                             <span>Avg {displayTicketStats.avg_resolution_hours}h</span>
                         </div>
-                    </div>
+                    </motion.div>
 
                     {/* Card 4 — Pending Client Validation */}
-                    <div
+                    <motion.div
+                        variants={cardVariants}
+                        whileHover={{ y: -4, transition: { duration: 0.2 } }}
                         onClick={() => onTabChange('requests', 'pending_validation')}
-                        className={`bg-white rounded-2xl p-3 border shadow-sm hover:shadow-md cursor-pointer transition-all group ${displayTicketStats.pending_validation > 0
+                        className={`bg-white rounded-2xl p-3 border shadow-sm hover:shadow-md cursor-pointer transition-all group relative overflow-hidden ${displayTicketStats.pending_validation > 0
                             ? 'border-amber-200 hover:border-amber-300'
                             : 'border-slate-100 hover:border-slate-200'
                             }`}
@@ -1945,7 +2048,7 @@ const OverviewTab = memo(function OverviewTab({
                         </div>
                         <div className="flex items-baseline gap-2 mb-2">
                             <span className={`text-4xl font-black ${displayTicketStats.pending_validation > 0 ? 'text-amber-600' : 'text-slate-900'}`}>
-                                {validationEnabledCount > 0 ? displayTicketStats.pending_validation : 0}
+                                {animatedPending}
                             </span>
                             {displayTicketStats.pending_validation === 0 && validationEnabledCount > 0 && (
                                 <span className="text-[10px] text-emerald-500 font-black">All clear ✓</span>
@@ -1970,18 +2073,25 @@ const OverviewTab = memo(function OverviewTab({
                                 Enabled on {validationEnabledCount}/{totalPropertiesCount} {totalPropertiesCount === 1 ? 'property' : 'properties'}
                             </div>
                         </div>
-                    </div>
+                    </motion.div>
 
-                </div>
+                </motion.div>
             </div>
 
             {/* Main Content Grid - with padding */}
-            <div className="px-8 lg:px-12 py-5 space-y-5">
+            <motion.div 
+                className="px-8 lg:px-12 py-5 space-y-5"
+                variants={containerVariants}
+                initial="hidden"
+                animate="visible"
+            >
                 <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
                     {/* Left Column */}
                     <div className="lg:col-span-3 space-y-5">
                         {/* Electricity Consumption */}
-                        <div
+                        <motion.div
+                            variants={cardVariants}
+                            whileHover={{ y: -4, transition: { duration: 0.2 } }}
                             onClick={() => onTabChange('electricity')}
                             className="bg-white rounded-3xl p-5 border border-slate-100 shadow-sm relative overflow-hidden group cursor-pointer hover:shadow-md hover:border-yellow-300/50 transition-all"
                         >
@@ -2072,21 +2182,28 @@ const OverviewTab = memo(function OverviewTab({
                                     </span>
                                 </div>
                             </div>
-                        </div>
+                        </motion.div>
 
                         {/* Vendor Revenue */}
-                        <div className="bg-white rounded-3xl p-5 border border-slate-100 shadow-sm">
+                        <motion.div 
+                            variants={cardVariants}
+                            whileHover={{ y: -4, transition: { duration: 0.2 } }}
+                            className="bg-white rounded-3xl p-5 border border-slate-100 shadow-sm"
+                        >
                             <h3 className="text-sm font-black text-slate-900 mb-2">Vendor Revenue</h3>
                             <div className="text-slate-400 text-xs font-bold mb-2">This Month</div>
                             <div className="text-3xl font-black text-slate-900">₹ {displayVendorStats.total_revenue.toLocaleString()}</div>
                             <div className="text-xs text-slate-500 mt-2">
                                 Commission: ₹ {displayVendorStats.total_commission.toLocaleString()} from {displayVendorStats.total_vendors} vendors
                             </div>
-                        </div>
+                        </motion.div>
                     </div>
 
                     {/* Center Column - Property Card */}
-                    <div className="lg:col-span-4">
+                    <motion.div 
+                        className="lg:col-span-4"
+                        variants={cardVariants}
+                    >
                         <div className="bg-yellow-400 rounded-3xl p-5 h-full relative overflow-hidden">
                             <div className="absolute top-4 right-4 bg-white/20 backdrop-blur-sm rounded-full w-8 h-8 flex items-center justify-center text-white font-bold text-sm">
                                 {properties.length}
@@ -2129,10 +2246,13 @@ const OverviewTab = memo(function OverviewTab({
                                 </div>
                             </div>
                         </div>
-                    </div>
+                    </motion.div>
 
                     {/* Right Column */}
-                    <div className="lg:col-span-5 space-y-5">
+                    <motion.div 
+                        className="lg:col-span-5 space-y-5"
+                        variants={cardVariants}
+                    >
                         {/* Property Breakdown */}
                         <div className="bg-white rounded-3xl p-5 border border-slate-100 shadow-sm">
                             <h3 className="text-sm font-black text-slate-900 mb-4">Tickets by Property</h3>
@@ -2179,9 +2299,9 @@ const OverviewTab = memo(function OverviewTab({
                                 </div>
                             </div>
                         </div>
-                    </div>
+                    </motion.div>
                 </div>
-            </div>
+            </motion.div>
         </div>
     );
 });

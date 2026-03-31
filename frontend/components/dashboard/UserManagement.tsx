@@ -162,6 +162,7 @@ const UserManagement = ({ orgId }: { orgId: string }) => {
                                             <option value="property_admin">Property Admin</option>
                                             <option value="staff">Staff</option>
                                             <option value="tenant">Client</option>
+                                            <option value="vendor">Food Vendor</option>
                                         </select>
                                     </td>
                                     <td className="px-8 py-6">

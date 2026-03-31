@@ -40,7 +40,8 @@ export default function Home() {
             }
 
             // 2. Check Org Membership from context
-            if (membership?.org_role === 'org_super_admin' && membership?.org_id) {
+            const ORG_ROUTED_ROLES = ['org_super_admin', 'super_tenant', 'owner', 'admin', 'org_admin', 'maintenance_vendor'];
+            if (membership?.org_id && membership?.org_role && ORG_ROUTED_ROLES.includes(membership.org_role)) {
                 router.replace(`/org/${membership.org_id}/dashboard`);
                 return;
             }

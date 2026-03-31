@@ -149,6 +149,58 @@ export async function GET(
         // Sort by total tickets descending
         propertyBreakdown.sort((a, b) => b.total - a.total);
 
+        // ── TREND CALCULATION (Last 30 Days) ──
+        const now = new Date();
+        const thirtyDaysAgo = new Date();
+        thirtyDaysAgo.setDate(now.getDate() - 29);
+        thirtyDaysAgo.setHours(0, 0, 0, 0);
+
+        // Filter tickets for the last 30 days specifically for trends
+        // (independent of the 'period' filter used for summary stats)
+        const trendTickets = allTickets.filter(t => new Date(t.created_at) >= thirtyDaysAgo);
+
+        const getDailyTrend = (ticketList: any[]) => {
+            const days = Array.from({ length: 30 }, (_, i) => {
+                const d = new Date(thirtyDaysAgo);
+                d.setDate(d.getDate() + i);
+                return d.toISOString().split('T')[0];
+            });
+
+            const totalTrend = new Array(30).fill(0);
+            const resolvedTrend = new Array(30).fill(0);
+            const activeTrend = new Array(30).fill(0);
+            const pendingTrend = new Array(30).fill(0);
+
+            ticketList.forEach(t => {
+                const createdDate = new Date(t.created_at).toISOString().split('T')[0];
+                const resolvedDate = t.resolved_at ? new Date(t.resolved_at).toISOString().split('T')[0] : null;
+                const idx = days.indexOf(createdDate);
+                const rIdx = resolvedDate ? days.indexOf(resolvedDate) : -1;
+
+                if (idx !== -1) {
+                    totalTrend[idx]++;
+                    if (t.status === 'pending_validation') pendingTrend[idx]++;
+                    if (!resolvedStatuses.includes(t.status || '')) activeTrend[idx]++;
+                }
+                if (rIdx !== -1) {
+                    resolvedTrend[rIdx]++;
+                }
+            });
+
+            return { total: totalTrend, resolved: resolvedTrend, active: activeTrend, pending: pendingTrend };
+        };
+
+        const globalTrends = getDailyTrend(trendTickets);
+
+        // Add trends to property breakdown
+        const propertyBreakdownWithTrends = propertyBreakdown.map(p => {
+            const propTickets = trendTickets.filter(t => t.property_id === p.property_id);
+            return {
+                ...p,
+                trends: getDailyTrend(propTickets)
+            };
+        });
+
         return NextResponse.json({
             organization_id: orgId,
             period,
@@ -163,7 +215,8 @@ export async function GET(
             sla_breached: slaBreached,
             avg_resolution_hours: avgResolutionHours,
             properties_with_validation: propertiesWithValidation,
-            properties: propertyBreakdown,
+            properties: propertyBreakdownWithTrends,
+            trends: globalTrends
         });
     } catch (error) {
         console.error('Tickets summary error:', error);

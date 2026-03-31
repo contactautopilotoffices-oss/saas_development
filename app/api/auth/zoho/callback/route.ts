@@ -90,6 +90,9 @@ export async function GET(request: Request) {
         const { data: linkData, error: linkError } = await supabaseAdmin.auth.admin.generateLink({
             type: 'magiclink',
             email,
+            options: {
+                redirectTo: requestUrl.origin
+            }
         });
 
         if (linkError || !linkData?.properties?.action_link) {

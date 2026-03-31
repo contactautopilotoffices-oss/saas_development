@@ -28,7 +28,8 @@ import { ShiftToast } from '@/frontend/components/mst/ShiftStatus';
 import NavbarShiftStatus from '@/frontend/components/mst/NavbarShiftStatus';
 import TicketCard from '@/frontend/components/shared/TicketCard';
 import SOPDashboard from '@/frontend/components/sop/SOPDashboard';
-import UniversalQRScannerModal from '@/frontend/components/shared/UniversalQRScannerModal';
+import dynamic from 'next/dynamic';
+const UniversalQRScannerModal = dynamic(() => import('@/frontend/components/shared/UniversalQRScannerModal'), { ssr: false });
 
 // Types
 type Tab = 'dashboard' | 'requests' | 'create_request' | 'visitors' | 'diesel' | 'electricity' | 'settings' | 'profile' | 'flow-map' | 'checklist';
@@ -56,7 +57,6 @@ interface Ticket {
     } | null;
     photo_before_url?: string;
     raised_by?: string;
-    sla_paused?: boolean;
     internal?: boolean;
     property_id?: string;
     creator?: { property_memberships?: { role: string; property_id: string }[] };
@@ -405,77 +405,6 @@ const MstDashboard = () => {
                         <img src="/autopilot-logo-new.png" alt="Autopilot Logo" className="h-10 w-auto object-contain" />
                         <p className="text-[9px] text-text-tertiary font-black uppercase tracking-[0.2em]">Maintenance Portal</p>
                     </div>
-                </div>
-
-                {/* Search */}
-                <div className="px-3 py-3 relative">
-                    <div className="relative">
-                        <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-text-tertiary" />
-                        <input
-                            type="text"
-                            placeholder="Search features..."
-                            value={searchQuery}
-                            onChange={(e) => setSearchQuery(e.target.value)}
-                            onKeyDown={(e) => {
-                                if (e.key === 'Enter' && searchQuery.length > 2) {
-                                    const match = [
-                                        { label: 'Overview', tab: 'dashboard' },
-                                        { label: 'Requests', tab: 'requests' },
-                                        { label: 'Visitors', tab: 'visitors' },
-                                        { label: 'Diesel Logger', tab: 'diesel' },
-                                        { label: 'Electricity Logger', tab: 'electricity' },
-                                        { label: 'Settings', tab: 'settings' },
-                                        { label: 'Profile', tab: 'profile' },
-                                        { label: 'New Request', tab: 'create_request' }
-                                    ].find(m => m.label.toLowerCase().includes(searchQuery.toLowerCase()));
-                                    if (match) {
-                                        handleTabChange(match.tab as Tab);
-                                        setSearchQuery('');
-                                    }
-                                }
-                            }}
-                            className="w-full pl-8 pr-3 py-2 bg-surface-elevated border border-border rounded-lg text-xs text-text-primary placeholder:text-text-tertiary focus:outline-none focus:border-primary"
-                        />
-                    </div>
-
-                    {/* Search Suggestions Dropdown */}
-                    <AnimatePresence>
-                        {searchQuery.length > 1 && (
-                            <motion.div
-                                initial={{ opacity: 0, y: -10 }}
-                                animate={{ opacity: 1, y: 0 }}
-                                exit={{ opacity: 0, y: -10 }}
-                                className="absolute left-3 right-3 mt-1 bg-card border border-border rounded-xl shadow-xl z-[70] overflow-hidden"
-                            >
-                                {[
-                                    { label: 'Overview', tab: 'dashboard', icon: LayoutDashboard },
-                                    { label: 'Requests', tab: 'requests', icon: Ticket },
-                                    { label: 'Projects', tab: 'projects', icon: FolderKanban },
-                                    { label: 'Visitors', tab: 'visitors', icon: UsersRound },
-                                    { label: 'Diesel Logger', tab: 'diesel', icon: Fuel },
-                                    { label: 'Electricity Logger', tab: 'electricity', icon: Zap },
-                                    { label: 'Settings', tab: 'settings', icon: Settings },
-                                    { label: 'Profile', tab: 'profile', icon: UserCircle },
-                                    { label: 'New Request', tab: 'create_request', icon: Plus },
-                                ].filter(i => i.label.toLowerCase().includes(searchQuery.toLowerCase())).map((item) => (
-                                    <button
-                                        key={item.tab}
-                                        onClick={() => {
-                                            handleTabChange(item.tab as Tab);
-                                            setSearchQuery('');
-                                        }}
-                                        className="w-full flex items-center gap-3 px-4 py-3 hover:bg-muted text-left transition-colors border-b last:border-0 border-border"
-                                    >
-                                        <item.icon className="w-4 h-4 text-primary" />
-                                        <div className="flex flex-col">
-                                            <span className="text-xs font-bold text-text-primary">{item.label}</span>
-                                            <span className="text-[9px] text-text-tertiary uppercase tracking-tighter">Navigate to Section</span>
-                                        </div>
-                                    </button>
-                                ))}
-                            </motion.div>
-                        )}
-                    </AnimatePresence>
                 </div>
 
                 {/* Quick Actions */}
@@ -1041,7 +970,6 @@ const DashboardTab = ({ tickets, completedCount, onTicketClick, userId, isLoadin
                                     assignedTo={ticket.assignee?.full_name}
                                     assigneePhotoUrl={(ticket.assignee as any)?.user_photo_url}
                                     photoUrl={ticket.photo_before_url}
-                                    isSlaPaused={ticket.sla_paused}
                                     escalationChain={(() => { const logs = ticket.ticket_escalation_logs; if (!logs || logs.length === 0) return undefined; const sorted = [...logs].sort((a, b) => new Date(a.escalated_at).getTime() - new Date(b.escalated_at).getTime()); const chain: { name: string; avatar?: string | null }[] = []; sorted.forEach((log, i) => { if (i === 0 && log.from_employee?.full_name) chain.push({ name: log.from_employee.full_name, avatar: log.from_employee.user_photo_url }); if (log.to_employee?.full_name) chain.push({ name: log.to_employee.full_name, avatar: log.to_employee.user_photo_url }); }); return chain.length > 0 ? chain : undefined; })()}
                                     raisedByTenant={((ticket.creator as any)?.property_memberships || []).some((m: any) => m.property_id === ticket.property_id && ['tenant', 'super_tenant'].includes((m.role || '').toLowerCase()))}
                                     onClick={() => onTicketClick?.(ticket.id)}
@@ -1204,7 +1132,6 @@ const RequestsTab = ({ activeTickets = [], completedTickets = [], onTicketClick,
                                     assignedTo={ticket.assignee?.full_name}
                                     assigneePhotoUrl={(ticket.assignee as any)?.user_photo_url}
                                     photoUrl={ticket.photo_before_url}
-                                    isSlaPaused={ticket.sla_paused}
                                     escalationChain={(() => { const logs = ticket.ticket_escalation_logs; if (!logs || logs.length === 0) return undefined; const sorted = [...logs].sort((a, b) => new Date(a.escalated_at).getTime() - new Date(b.escalated_at).getTime()); const chain: { name: string; avatar?: string | null }[] = []; sorted.forEach((log, i) => { if (i === 0 && log.from_employee?.full_name) chain.push({ name: log.from_employee.full_name, avatar: log.from_employee.user_photo_url }); if (log.to_employee?.full_name) chain.push({ name: log.to_employee.full_name, avatar: log.to_employee.user_photo_url }); }); return chain.length > 0 ? chain : undefined; })()}
                                     raisedByTenant={((ticket.creator as any)?.property_memberships || []).some((m: any) => m.property_id === ticket.property_id && ['tenant', 'super_tenant'].includes((m.role || '').toLowerCase()))}
                                     onClick={() => onTicketClick?.(ticket.id)}

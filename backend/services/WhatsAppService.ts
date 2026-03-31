@@ -15,14 +15,22 @@ export interface WhatsAppOptions {
 
 export class WhatsAppService {
 
+    // In-memory cache: userId → phone. TTL 5 minutes.
+    private static phoneCache = new Map<string, { phone: string | null; expiresAt: number }>();
+    private static CACHE_TTL_MS = 5 * 60 * 1000;
 
     private static async getPhone(userId: string): Promise<string | null> {
+        const cached = this.phoneCache.get(userId);
+        if (cached && Date.now() < cached.expiresAt) return cached.phone;
+
         const { data } = await supabaseAdmin
             .from('users')
             .select('phone')
             .eq('id', userId)
             .single();
-        return data?.phone || null;
+        const phone = data?.phone || null;
+        this.phoneCache.set(userId, { phone, expiresAt: Date.now() + this.CACHE_TTL_MS });
+        return phone;
     }
 
     private static formatPhone(phone: string): string {
@@ -72,17 +80,17 @@ export class WhatsAppService {
         return true;
     }
 
-    // The actual send logic — runs inside the serial queue
-    private static async _send(phone: string, options: WhatsAppOptions): Promise<void> {
+    // The actual send logic — returns true on success, false on failure
+    private static async _send(phone: string, options: WhatsAppOptions): Promise<boolean> {
         if (!WASENDER_API_KEY || !WASENDER_SENDER_ID) {
             console.error('>>>>>>>>>> [WHATSAPP] ❌ MISSING CONFIG');
-            return;
+            return false;
         }
 
         const formattedPhone = this.formatPhone(phone);
         if (!formattedPhone || formattedPhone.length < 11) {
             console.error('>>>>>>>>>> [WHATSAPP] ❌ Invalid phone number, skipping:', phone);
-            return;
+            return false;
         }
 
         const to = `${formattedPhone}@s.whatsapp.net`;
@@ -104,7 +112,7 @@ export class WhatsAppService {
                     imageUrl: options.mediaUrl,
                     text: captionText,
                 });
-                if (sent) return;
+                if (sent) return true;
                 console.log('>>>>>>>>>> [WHATSAPP] Image send failed, falling back to text...');
             }
 
@@ -116,37 +124,45 @@ export class WhatsAppService {
                     videoUrl: options.mediaUrl,
                     text: captionText,
                 });
-                if (sent) return;
+                if (sent) return true;
                 console.log('>>>>>>>>>> [WHATSAPP] Video send failed, falling back to text...');
             }
 
             // Plain text fallback
             console.log('>>>>>>>>>> [WHATSAPP] Sending as text message...');
-            await this.callAPI('send-message', {
+            const sent = await this.callAPI('send-message', {
                 session: WASENDER_SENDER_ID,
                 to,
                 text: captionText,
             });
+            return sent;
 
         } catch (err) {
             console.error('>>>>>>>>>> [WHATSAPP] ❌ NETWORK ERROR:', err);
+            return false;
         }
     }
 
-    static sendPoll(phone: string, question: string, options: string[]): void {
-        if (!WASENDER_API_KEY || !WASENDER_SENDER_ID) return;
+    static async sendPoll(phone: string, question: string, options: string[]): Promise<boolean> {
+        if (!WASENDER_API_KEY || !WASENDER_SENDER_ID) return false;
         const formattedPhone = this.formatPhone(phone);
-        if (!formattedPhone || formattedPhone.length < 11) return;
+        if (!formattedPhone || formattedPhone.length < 11) return false;
         const to = `${formattedPhone}@s.whatsapp.net`;
-        this.callAPI('send-message', {
-            session: WASENDER_SENDER_ID,
-            to,
-            poll: {
-                question,
-                options: options.slice(0, 12), // WasenderAPI max is 12
-                multiSelect: false,
-            },
-        }).catch((err: unknown) => console.error('>>>>>>>>>> [WHATSAPP] Poll send error:', err));
+        try {
+            await this.callAPI('send-message', {
+                session: WASENDER_SENDER_ID,
+                to,
+                poll: {
+                    question,
+                    options: options.slice(0, 12),
+                    multiSelect: false,
+                },
+            });
+            return true;
+        } catch (err) {
+            console.error('>>>>>>>>>> [WHATSAPP] Poll send error:', err);
+            return false;
+        }
     }
 
     static send(phone: string, options: WhatsAppOptions): void {
@@ -155,19 +171,25 @@ export class WhatsAppService {
         );
     }
 
-    static async sendAsync(phone: string, options: WhatsAppOptions): Promise<void> {
-        await WhatsAppService._send(phone, options);
+    static async sendAsync(phone: string, options: WhatsAppOptions): Promise<boolean> {
+        return WhatsAppService._send(phone, options);
     }
 
-    static async sendToUser(userId: string, options: WhatsAppOptions): Promise<void> {
+    static async sendToUser(userId: string, options: WhatsAppOptions): Promise<'SENT' | 'SKIPPED' | 'FAILED'> {
         console.log('>>>>>>>>>> [WHATSAPP] sendToUser() for userId:', userId);
         const phone = await this.getPhone(userId);
         if (!phone) {
             console.warn('>>>>>>>>>> [WHATSAPP] ⚠️ No phone number for userId:', userId, '— skipping.');
-            return;
+            return 'SKIPPED';
         }
         console.log('>>>>>>>>>> [WHATSAPP] Phone found:', phone);
-        this.send(phone, options);
+        try {
+            await WhatsAppService._send(phone, options);
+            return 'SENT';
+        } catch (err) {
+            console.error('>>>>>>>>>> [WHATSAPP] Send error:', err);
+            return 'FAILED';
+        }
     }
 
     static async sendToUsers(userIds: string[], options: WhatsAppOptions): Promise<void> {
@@ -178,7 +200,10 @@ export class WhatsAppService {
             .select('id, phone')
             .in('id', userIds);
         for (const user of data || []) {
-            if (user.phone) this.send(user.phone, options);
+            if (user.phone) {
+                this.send(user.phone, options);
+                await new Promise(r => setTimeout(r, 500));
+            }
         }
     }
 }

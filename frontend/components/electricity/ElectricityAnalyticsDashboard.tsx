@@ -122,11 +122,12 @@ const ElectricityAnalyticsDashboard: React.FC<ElectricityAnalyticsDashboardProps
                 trendStart: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
             };
 
+            const handleFetch = (url: string) => fetch(url).then(r => r.ok ? r.json() : []).catch(() => []);
             const [todayR, monthR, prevMonthR, trendR] = await Promise.all([
-                fetch(`${readingsBaseUrl}?startDate=${dates.today}&endDate=${dates.today}`).then(r => r.json()).catch(() => []),
-                fetch(`${readingsBaseUrl}?startDate=${dates.monthStart}`).then(r => r.json()).catch(() => []),
-                fetch(`${readingsBaseUrl}?startDate=${dates.prevMonthStart}&endDate=${dates.prevMonthEnd}`).then(r => r.json()).catch(() => []),
-                fetch(`${readingsBaseUrl}?startDate=${dates.trendStart}`).then(r => r.json()).catch(() => [])
+                handleFetch(`${readingsBaseUrl}?startDate=${dates.today}&endDate=${dates.today}`),
+                handleFetch(`${readingsBaseUrl}?startDate=${dates.monthStart}`),
+                handleFetch(`${readingsBaseUrl}?startDate=${dates.prevMonthStart}&endDate=${dates.prevMonthEnd}`),
+                handleFetch(`${readingsBaseUrl}?startDate=${dates.trendStart}`)
             ]);
 
             setRawReadings({

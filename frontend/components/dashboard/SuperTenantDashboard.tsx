@@ -16,6 +16,7 @@ import TenantTicketingDashboard from '@/frontend/components/tickets/TenantTicket
 import TenantRoomBooking from '@/frontend/components/meeting-rooms/TenantRoomBooking';
 import SettingsView from './SettingsView';
 import TicketCard from '@/frontend/components/shared/TicketCard';
+import NotificationBell from './NotificationBell';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Filter } from 'lucide-react';
 
@@ -42,7 +43,6 @@ interface Ticket {
     raised_by?: string;
     assigned_to?: string | null;
     photo_before_url?: string;
-    sla_paused?: boolean;
     property?: { name: string };
     assignee?: { full_name: string };
     creator?: { full_name: string };
@@ -866,7 +866,6 @@ const SuperTenantDashboard = () => {
                             assignedTo={t.assignee?.full_name}
                             assigneePhotoUrl={(t.assignee as any)?.user_photo_url}
                             photoUrl={t.photo_before_url}
-                            isSlaPaused={t.sla_paused}
                             propertyName={t.property?.name}
                             escalationChain={(() => { const logs = (t as any).ticket_escalation_logs; if (!logs || logs.length === 0) return undefined; const sorted = [...logs].sort((a: any, b: any) => new Date(a.escalated_at).getTime() - new Date(b.escalated_at).getTime()); const chain: { name: string; avatar?: string | null }[] = []; sorted.forEach((log: any, i: number) => { if (i === 0 && log.from_employee?.full_name) chain.push({ name: log.from_employee.full_name, avatar: log.from_employee.user_photo_url }); if (log.to_employee?.full_name) chain.push({ name: log.to_employee.full_name, avatar: log.to_employee.user_photo_url }); }); return chain.length > 0 ? chain : undefined; })()}
                             raisedByTenant={((t.creator as any)?.property_memberships || []).some((m: any) => m.property_id === t.property_id && ['tenant', 'super_tenant'].includes((m.role || '').toLowerCase()))}
@@ -966,7 +965,8 @@ const SuperTenantDashboard = () => {
                         </div>
 
                         {/* Right: Property dropdown + desktop time filter + avatar */}
-                        <div className="flex items-center gap-2 shrink-0">
+                        <div className="flex items-center gap-4 shrink-0">
+                            <NotificationBell />
 
                             {/* Time Period Filter — desktop only; mobile shown inside overview content */}
                             {activeTab === 'overview' && (

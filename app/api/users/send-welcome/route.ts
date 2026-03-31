@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 import { createClient } from '@/frontend/utils/supabase/server';
 import { supabaseAdmin } from '@/backend/lib/supabase/admin';
 import { WhatsAppService } from '@/backend/services/WhatsAppService';
@@ -9,7 +9,7 @@ import { buildWelcomeMessage } from '@/backend/lib/whatsapp/welcomeMessage';
  * Sends the welcome WhatsApp message to the currently authenticated user.
  * Called after a user sets their phone number for the first time.
  */
-export async function POST(request: NextRequest) {
+export async function POST() {
     const supabase = await createClient();
     const { data: { user }, error: authError } = await supabase.auth.getUser();
     if (authError || !user) {

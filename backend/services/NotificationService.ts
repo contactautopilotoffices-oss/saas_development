@@ -1,6 +1,7 @@
 import { supabaseAdmin } from '@/backend/lib/supabase/admin';
 import { firebaseAdmin } from '@/backend/lib/firebase';
 import { WhatsAppService } from './WhatsAppService';
+import { WhatsAppQueueService } from './WhatsAppQueueService';
 
 export interface NotificationPayload {
     userId: string;
@@ -422,9 +423,15 @@ export class NotificationService {
 
             await this.injectAssigneePhone(ticket);
             const waBody = this.buildWhatsAppBody(ticket);
-            const { mediaUrl: waMediaUrl, mediaType: waMediaType } = this.extractMedia(ticket);
+
+            // For completion, send after media (proof of work done) — prefer after over before
+            const afterPhoto = ticket.photo_after_url || null;
+            const afterVideo = ticket.video_after_url || null;
+            const waMediaUrl: string | undefined = afterPhoto || afterVideo || undefined;
+            const waMediaType: 'image' | 'video' | undefined = afterPhoto ? 'image' : afterVideo ? 'video' : undefined;
 
             console.log(`>>>>>>>>>> [NOTIFICATION TEST] Final COMPLETED recipients (${recipients.length}):`, recipients);
+            console.log(`>>>>>>>>>> [NOTIFICATION TEST] After media: photo=${afterPhoto}, video=${afterVideo}`);
             for (const userId of recipients) {
                 await this.send({
                     userId,
@@ -760,13 +767,15 @@ export class NotificationService {
                 console.error('>>>>>>>>>> [NOTIFICATION TEST] !!! DATABASE INSERT FAILED !!!');
                 console.error('>>>>>>>>>> Error Details:', JSON.stringify(notifError));
                 console.error('>>>>>>>>>> Payload tried:', JSON.stringify(payload));
-                // Still attempt WhatsApp even if DB insert fails
-                WhatsAppService.sendToUser(payload.userId, {
+                // Still attempt WhatsApp via queue even if DB insert fails
+                WhatsAppQueueService.enqueue({
+                    ticketId: payload.ticketId ?? '',
+                    userIds: [payload.userId],
                     message: payload.whatsapp?.message || `*${payload.title}*\n\n${payload.message}`,
-                    deepLink: payload.deepLink,
                     mediaUrl: payload.whatsapp?.mediaUrl,
                     mediaType: payload.whatsapp?.mediaType,
-                }).catch(err => console.error('[NotificationService] WhatsApp fallback error:', err));
+                    eventType: payload.type,
+                }).catch(err => console.error('[NotificationService] WhatsApp fallback queue error:', err));
                 return;
             }
 
@@ -816,45 +825,43 @@ export class NotificationService {
                 console.log('[NotificationService] No active tokens for user, skipping push.');
             }
 
-            // 3. Send WhatsApp — uses pre-built payload when available (no extra DB query)
-            (async () => {
-                try {
-                    let waMessage: string;
-                    let waMediaUrl: string | undefined;
-                    let waMediaType: 'image' | 'video' | undefined;
+            // 3. Send WhatsApp via queue — awaited so Vercel doesn't cut it off
+            try {
+                let waMessage: string;
+                let waMediaUrl: string | undefined;
+                let waMediaType: 'image' | 'video' | undefined;
 
-                    if (payload.whatsapp) {
-                        // Caller pre-built the message — use directly, zero extra DB queries
-                        waMessage = payload.whatsapp.message;
-                        waMediaUrl = payload.whatsapp.mediaUrl;
-                        waMediaType = payload.whatsapp.mediaType;
-                    } else if (payload.ticketId) {
-                        // Fallback: single immediate fetch, no waiting or retrying
-                        const { data: ticket } = await supabaseAdmin
-                            .from('tickets')
-                            .select('title, status, priority, ticket_number, photo_before_url, photo_after_url, video_before_url, video_after_url, properties(name), assignee:users!assigned_to(full_name, phone), raiser:users!raised_by(full_name)')
-                            .eq('id', payload.ticketId)
-                            .single();
-                        if (ticket) {
-                            waMessage = `*${payload.title}*\n\n${this.buildWhatsAppBody(ticket)}`;
-                            ({ mediaUrl: waMediaUrl, mediaType: waMediaType } = this.extractMedia(ticket));
-                        } else {
-                            waMessage = payload.message;
-                        }
+                if (payload.whatsapp) {
+                    waMessage = payload.whatsapp.message;
+                    waMediaUrl = payload.whatsapp.mediaUrl;
+                    waMediaType = payload.whatsapp.mediaType;
+                } else if (payload.ticketId) {
+                    const { data: ticket } = await supabaseAdmin
+                        .from('tickets')
+                        .select('title, status, priority, ticket_number, photo_before_url, photo_after_url, video_before_url, video_after_url, properties(name), assignee:users!assigned_to(full_name, phone), raiser:users!raised_by(full_name)')
+                        .eq('id', payload.ticketId)
+                        .single();
+                    if (ticket) {
+                        waMessage = `*${payload.title}*\n\n${this.buildWhatsAppBody(ticket)}`;
+                        ({ mediaUrl: waMediaUrl, mediaType: waMediaType } = this.extractMedia(ticket));
                     } else {
                         waMessage = payload.message;
                     }
-
-                    await WhatsAppService.sendToUser(payload.userId, {
-                        message: waMessage,
-                        deepLink: payload.deepLink,
-                        mediaUrl: waMediaUrl,
-                        mediaType: waMediaType,
-                    });
-                } catch (err) {
-                    console.error('[NotificationService] WhatsApp dispatch error:', err);
+                } else {
+                    waMessage = payload.message;
                 }
-            })();
+
+                await WhatsAppQueueService.enqueue({
+                    ticketId: payload.ticketId ?? '',
+                    userIds: [payload.userId],
+                    message: waMessage,
+                    mediaUrl: waMediaUrl,
+                    mediaType: waMediaType,
+                    eventType: payload.type,
+                });
+            } catch (err) {
+                console.error('[NotificationService] WhatsApp queue enqueue error:', err);
+            }
 
         } catch (error) {
             console.error('[NotificationService] Global send error:', error);

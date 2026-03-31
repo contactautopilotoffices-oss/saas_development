@@ -227,31 +227,30 @@ const OrgDashboard = ({ orgId }: { orgId: string }) => {
 
                 {/* Scrollable Content Area */}
                 <div className="flex-1 p-12 custom-scrollbar">
-                    <AnimatePresence mode="wait">
-                        <motion.div
-                            key={activeTab}
-                            initial={{ opacity: 0, scale: 0.99 }}
-                            animate={{ opacity: 1, scale: 1 }}
-                            exit={{ opacity: 0, scale: 1.01 }}
-                            transition={{ duration: 0.2 }}
-                        >
-                            {activeTab === 'dashboard' && <GlobalMetrics properties={properties} orgId={orgId} router={router} />}
-                            {activeTab === 'properties' && (
-                                <PropertyManagement
-                                    orgId={orgId}
-                                    properties={properties}
-                                    onRefresh={fetchProperties}
-                                />
-                            )}
-                            {activeTab === 'requests' && <RequestsFeed />}
-                            {activeTab === 'users' && <UserManagement orgId={orgId} />}
-
-                            {activeTab === 'vendors' && <VendorSummary orgId={orgId} />}
-                            {activeTab === 'visitors' && <VMSOrgVisitorDashboard orgId={orgId} />}
-                            {activeTab === 'analytics' && <SLAAnalytics />}
-                            {activeTab === 'super-tenants' && <SuperTenantOrgTab orgId={orgId} properties={properties} />}
-                        </motion.div>
-                    </AnimatePresence>
+                    <div style={{ display: activeTab === 'dashboard' ? 'block' : 'none' }}>
+                        <GlobalMetrics properties={properties} orgId={orgId} router={router} />
+                    </div>
+                    <div style={{ display: activeTab === 'properties' ? 'block' : 'none' }}>
+                        <PropertyManagement orgId={orgId} properties={properties} onRefresh={fetchProperties} />
+                    </div>
+                    <div style={{ display: activeTab === 'requests' ? 'block' : 'none' }}>
+                        <RequestsFeed />
+                    </div>
+                    <div style={{ display: activeTab === 'users' ? 'block' : 'none' }}>
+                        <UserManagement orgId={orgId} />
+                    </div>
+                    <div style={{ display: activeTab === 'vendors' ? 'block' : 'none' }}>
+                        <VendorSummary orgId={orgId} />
+                    </div>
+                    <div style={{ display: activeTab === 'visitors' ? 'block' : 'none' }}>
+                        <VMSOrgVisitorDashboard orgId={orgId} />
+                    </div>
+                    <div style={{ display: activeTab === 'analytics' ? 'block' : 'none' }}>
+                        <SLAAnalytics />
+                    </div>
+                    <div style={{ display: activeTab === 'super-tenants' ? 'block' : 'none' }}>
+                        <SuperTenantOrgTab orgId={orgId} properties={properties} />
+                    </div>
                 </div>
             </main>
         </div>

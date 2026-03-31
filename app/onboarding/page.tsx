@@ -357,8 +357,9 @@ export default function OnboardingPage() {
 
             // 3️⃣ Update user profile with phone (if filled) and onboarding status
             const profileUpdate: any = { onboarding_completed: true };
-            if (phoneNumber.trim().length >= 10) {
-                profileUpdate.phone = phoneNumber.trim();
+            const cleanPhone = phoneNumber.trim();
+            if (cleanPhone.length >= 10) {
+                profileUpdate.phone = cleanPhone;
             }
 
             const { error: userUpdateError } = await supabase
@@ -375,6 +376,11 @@ export default function OnboardingPage() {
             await supabase.auth.updateUser({
                 data: { onboarding_completed: true }
             });
+
+            // 4️⃣ Send welcome WhatsApp message if phone was provided
+            if (cleanPhone.length >= 10) {
+                fetch('/api/users/send-welcome', { method: 'POST' }).catch(() => {});
+            }
 
             setShowFireworks(true);
         } catch (err: any) {

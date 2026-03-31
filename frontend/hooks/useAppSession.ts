@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react';
 
 export interface AppSession {
     user_id: string;
-    role: 'master_admin' | 'org_super_admin' | 'org_admin' | 'property_admin' | 'staff' | 'soft_service_manager' | 'soft_service_staff' | 'tenant' | 'super_tenant';
+    role: 'master_admin' | 'org_super_admin' | 'org_admin' | 'property_admin' | 'staff' | 'soft_service_manager' | 'soft_service_staff' | 'tenant' | 'super_tenant' | 'maintenance_vendor';
     org_id: string;
     property_ids: string[];
     available_modules: string[];
@@ -12,7 +12,8 @@ export interface AppSession {
 export function useAppSession() {
     const [session, setSession] = useState<AppSession | null>(null);
     const [isLoading, setIsLoading] = useState(true);
-    const supabase = createClient();
+    // Stable reference — createClient() must not be called on every render
+    const supabase = useState(() => createClient())[0];
 
     useEffect(() => {
         async function getSessionData() {
@@ -34,22 +35,22 @@ export function useAppSession() {
                 role = 'master_admin';
             }
 
-            // Fetch org membership — use neq(is_active, false) to also match NULL rows
-            // (rows inserted without explicit is_active will have NULL, not false)
-            const { data: orgMem } = await supabase
-                .from('organization_memberships')
-                .select('role, organization_id')
-                .eq('user_id', user.id)
-                .neq('is_active', false)
-                .order('created_at', { ascending: false })
-                .limit(1)
-                .maybeSingle();
-
-            const { data: propMems } = await supabase
-                .from('property_memberships')
-                .select('property_id, role')
-                .eq('user_id', user.id)
-                .eq('is_active', true);
+            // Fetch org + property memberships in parallel instead of sequentially
+            const [{ data: orgMem }, { data: propMems }] = await Promise.all([
+                supabase
+                    .from('organization_memberships')
+                    .select('role, organization_id')
+                    .eq('user_id', user.id)
+                    .neq('is_active', false)
+                    .order('created_at', { ascending: false })
+                    .limit(1)
+                    .maybeSingle(),
+                supabase
+                    .from('property_memberships')
+                    .select('property_id, role')
+                    .eq('user_id', user.id)
+                    .eq('is_active', true),
+            ]);
 
             // Prioritize roles: Org Member > Property Member > Metadata > Default (tenant)
             const propRole = propMems?.find(p => p.role && p.role !== 'tenant')?.role || propMems?.[0]?.role;
@@ -93,7 +94,7 @@ export function useAppSession() {
         }
 
         getSessionData();
-    }, [supabase]);
+    }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
     return { session, isLoading };
 }

@@ -194,7 +194,7 @@ function AuthContent() {
                 // Property-level roles (property_admin, staff, tenant, etc.) may also have
                 // an org_membership row (created by the user-create API), but they should
                 // be routed via Step 4 (property_memberships) instead.
-                const ORG_LEVEL_ROLES = ['org_super_admin', 'super_tenant', 'owner', 'admin', 'org_admin'];
+                const ORG_LEVEL_ROLES = ['org_super_admin', 'super_tenant', 'owner', 'admin', 'org_admin', 'maintenance_vendor'];
                 const activeOrgMemberships = (orgMemberships || []).filter(
                     (m) => ORG_LEVEL_ROLES.includes(m.role) && (m.is_active === true || m.is_active === null)
                 );

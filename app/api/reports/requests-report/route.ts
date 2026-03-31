@@ -6,9 +6,11 @@ export async function GET(request: NextRequest) {
         const { searchParams } = new URL(request.url);
         const propertyId = searchParams.get('propertyId');
         const month = searchParams.get('month'); // YYYY-MM format
+        const startDateParam = searchParams.get('startDate'); // YYYY-MM-DD
+        const endDateParam = searchParams.get('endDate');     // YYYY-MM-DD
 
-        if (!propertyId || !month) {
-            return NextResponse.json({ error: 'propertyId and month are required' }, { status: 400 });
+        if (!propertyId || (!month && (!startDateParam || !endDateParam))) {
+            return NextResponse.json({ error: 'propertyId and either month or startDate+endDate are required' }, { status: 400 });
         }
 
         const supabase = await createClient();
@@ -34,10 +36,21 @@ export async function GET(request: NextRequest) {
 
         const isValidationEnabled = feature ? feature.is_enabled : true; // Default to true if not specified
 
-        // Calculate month date range
-        const [year, monthNum] = month.split('-').map(Number);
-        const startDate = new Date(year, monthNum - 1, 1).toISOString();
-        const endDate = new Date(year, monthNum, 1).toISOString();
+        // Calculate date range — custom range takes priority over month
+        let startDate: string;
+        let endDate: string;
+        let monthLabel: string;
+
+        if (startDateParam && endDateParam) {
+            startDate = new Date(startDateParam + 'T00:00:00').toISOString();
+            endDate = new Date(endDateParam + 'T23:59:59').toISOString();
+            monthLabel = `${startDateParam} to ${endDateParam}`;
+        } else {
+            const [year, monthNum] = month!.split('-').map(Number);
+            startDate = new Date(year, monthNum - 1, 1).toISOString();
+            endDate = new Date(year, monthNum, 1).toISOString();
+            monthLabel = month!;
+        }
 
         // Fetch all tickets for this property in this month (no import_batch_id filter)
         const { data: tickets, error: ticketsError } = await supabase
@@ -188,13 +201,15 @@ export async function GET(request: NextRequest) {
             };
         });
 
-        const monthLabel = new Date(year, monthNum - 1).toLocaleDateString('en-GB', { month: 'long', year: 'numeric' });
+        const displayLabel = startDateParam && endDateParam
+            ? `${new Date(startDateParam).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })} – ${new Date(endDateParam).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}`
+            : (() => { const [y, mn] = month!.split('-').map(Number); return new Date(y, mn - 1).toLocaleDateString('en-GB', { month: 'long', year: 'numeric' }); })();
 
         return NextResponse.json({
             success: true,
             month: {
-                value: month,
-                label: monthLabel,
+                value: startDateParam && endDateParam ? `${startDateParam}_${endDateParam}` : month,
+                label: displayLabel,
             },
             property: property || { name: 'Unknown Property', code: 'N/A' },
             kpis: {

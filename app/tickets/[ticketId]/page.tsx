@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { createClient } from '@/frontend/utils/supabase/client';
 import {
@@ -16,6 +16,7 @@ import {
     Send,
     PauseCircle,
     PlayCircle,
+
     Forward,
     XCircle,
     ShieldAlert,
@@ -42,6 +43,7 @@ import { compressImage } from '@/frontend/utils/image-compression';
 import { useTheme } from '@/frontend/context/ThemeContext';
 import MediaCaptureModal, { type MediaFile } from '@/frontend/components/shared/MediaCaptureModal';
 import VideoPreviewModal from '@/frontend/components/shared/VideoPreviewModal';
+import ShareModal from '@/frontend/components/shared/ShareModal';
 import { playTickleSound } from '@/frontend/utils/sounds';
 
 // Types
@@ -61,7 +63,6 @@ interface Ticket {
     closed_at?: string;
     sla_deadline?: string;
     sla_breached: boolean;
-    sla_paused: boolean;
     location?: string;
     floor_number?: number;
     photo_before_url?: string;
@@ -160,13 +161,25 @@ export default function TicketDetailPage() {
     // Validation State
     const [showRejectModal, setShowRejectModal] = useState(false);
     const [rejectNote, setRejectNote] = useState('');
+    const [shareOpen, setShareOpen] = useState(false);
     const [validationEnabled, setValidationEnabled] = useState(true);
 
     // Camera Modal State
     const [showCameraModal, setShowCameraModal] = useState(false);
     const [previewVideoUrl, setPreviewVideoUrl] = useState<string | null>(null);
     const [previewVideoTitle, setPreviewVideoTitle] = useState('');
+    const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
+    const [peekUrl, setPeekUrl] = useState<string | null>(null);
+    const peekTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
     const [activeCameraType, setActiveCameraType] = useState<'before' | 'after' | null>(null);
+
+    function startPeek(url: string) {
+        peekTimerRef.current = setTimeout(() => setPeekUrl(url), 350);
+    }
+    function endPeek() {
+        if (peekTimerRef.current) { clearTimeout(peekTimerRef.current); peekTimerRef.current = null; }
+        setPeekUrl(null);
+    }
 
     // Initial Fetch
     useEffect(() => {
@@ -793,19 +806,6 @@ export default function TicketDetailPage() {
         });
     };
 
-    const handleSLAAction = async (pause: boolean) => {
-        try {
-            await fetch(`/api/tickets/${ticketId}/pause-sla`, {
-                method: 'PATCH',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ pause, reason: pause ? 'Paused by admin' : undefined }),
-            });
-            showToast(pause ? 'SLA Paused' : 'SLA Resumed', 'success');
-            fetchTicketDetails(userId, true);
-        } catch (err) {
-            showToast('Failed to update SLA', 'error');
-        }
-    };
 
     const handleDelete = async () => {
         if (!window.confirm('Are you sure you want to permanently delete this request? This action cannot be undone.')) return;
@@ -835,30 +835,26 @@ export default function TicketDetailPage() {
     };
 
     const handleBack = () => {
-        const via = searchParams.get('via');
-        const hasHistory = typeof window !== 'undefined' && window.history.length > 1;
-
         if (from) {
             window.history.back();
-        } else if (via === 'notification' || !hasHistory) {
-            // Smart redirect based on role and property context
-            const pId = ticket?.property_id;
-            if (!pId) {
-                router.push('/');
-                return;
-            }
+            return;
+        }
 
-            if (userRole === 'admin') {
-                router.push(`/property/${pId}/dashboard?tab=requests`);
-            } else if (userRole === 'mst') {
-                router.push(`/property/${pId}/mst?tab=requests`);
-            } else if (userRole === 'staff') {
-                router.push(`/property/${pId}/staff?tab=requests`);
-            } else {
-                router.push(`/property/${pId}/tenant?tab=requests`);
-            }
+        // No `from` param means direct/shared link — always go to the correct dashboard
+        const pId = ticket?.property_id;
+        if (!pId) {
+            router.push('/');
+            return;
+        }
+
+        if (userRole === 'admin') {
+            router.push(`/property/${pId}/dashboard?tab=requests`);
+        } else if (userRole === 'mst') {
+            router.push(`/property/${pId}/mst?tab=requests`);
+        } else if (userRole === 'staff') {
+            router.push(`/property/${pId}/staff?tab=requests`);
         } else {
-            router.back();
+            router.push(`/property/${pId}/tenant?tab=requests`);
         }
     };
 
@@ -984,6 +980,13 @@ export default function TicketDetailPage() {
                                         {isDeleting ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
                                     </button>
                                 )}
+                                <button
+                                    onClick={() => setShareOpen(true)}
+                                    className={`p-1.5 rounded-lg transition-all ${isDark ? 'hover:bg-[#21262d] text-slate-500 hover:text-blue-400' : 'hover:bg-blue-50 text-slate-400 hover:text-blue-600'}`}
+                                    title="Share Ticket"
+                                >
+                                    <Share2 className="w-4 h-4" />
+                                </button>
                             </div>
 
                             {(ticket as any).llm_reasoning && (
@@ -1004,12 +1007,7 @@ export default function TicketDetailPage() {
                             </div>
                             {ticket.sla_deadline && ticket.status !== 'closed' && (
                                 <div className="flex items-center justify-end mt-1">
-                                    {ticket.sla_paused ? (
-                                        <div className="flex items-center gap-1.5 px-2 py-0.5 bg-amber-50 border border-amber-200 rounded-lg animate-pulse">
-                                            <div className="w-1.5 h-1.5 rounded-full bg-amber-500" />
-                                            <span className="text-[10px] font-black text-amber-700 uppercase tracking-widest">SLA Paused</span>
-                                        </div>
-                                    ) : ticket.sla_breached ? (
+                                    {ticket.sla_breached ? (
                                         <div className="flex flex-col items-end gap-0.5">
                                             <div className="flex items-center gap-1.5 px-2.5 py-1 bg-rose-500 border border-rose-600 rounded-lg animate-pulse">
                                                 <AlertTriangle className="w-3 h-3 text-white" />
@@ -1101,13 +1099,6 @@ export default function TicketDetailPage() {
                         {/* Admin Actions */}
                         {canManage && (
                             <>
-                                <button
-                                    onClick={() => handleSLAAction(!ticket.sla_paused)}
-                                    className={`flex items-center gap-2 px-4 py-2 ${isDark ? 'bg-[#21262d] border-[#30363d] text-slate-300 hover:bg-[#30363d]' : 'bg-slate-100 border-slate-200 text-slate-600 hover:bg-slate-200'} border rounded-xl text-xs font-black uppercase tracking-widest transition-all`}
-                                >
-                                    {ticket.sla_paused ? <PlayCircle className="w-4 h-4" /> : <PauseCircle className="w-4 h-4" />}
-                                    {ticket.sla_paused ? 'Resume SLA' : 'Pause SLA'}
-                                </button>
                                 <button
                                     onClick={() => setShowAssignModal(true)}
                                     className={`flex items-center gap-2 px-4 py-2 ${isDark ? 'bg-[#21262d] border-[#30363d] text-slate-300 hover:bg-[#30363d]' : 'bg-slate-100 border-slate-200 text-slate-600 hover:bg-slate-200'} border rounded-xl text-xs font-black uppercase tracking-widest transition-all`}
@@ -1388,10 +1379,21 @@ export default function TicketDetailPage() {
                                                 </>
                                             ) : (
                                                 <>
-                                                    <img src={ticket.photo_before_url} alt="Before" className="w-full h-full object-cover" />
+                                                    <img
+                                                        src={ticket.photo_before_url} alt="Before"
+                                                        className="w-full h-full object-cover cursor-zoom-in select-none"
+                                                        onClick={() => ticket.photo_before_url && setLightboxUrl(ticket.photo_before_url)}
+                                                        onMouseDown={() => ticket.photo_before_url && startPeek(ticket.photo_before_url)}
+                                                        onMouseUp={endPeek}
+                                                        onMouseLeave={endPeek}
+                                                        onTouchStart={() => ticket.photo_before_url && startPeek(ticket.photo_before_url)}
+                                                        onTouchEnd={endPeek}
+                                                        onContextMenu={e => e.preventDefault()}
+                                                        draggable={false}
+                                                    />
                                                     <div className="absolute inset-0 bg-black/60 flex flex-col items-center justify-center opacity-100 lg:opacity-0 lg:group-hover:opacity-100 transition-opacity gap-3">
                                                         <button
-                                                            onClick={() => ticket.photo_before_url && window.open(ticket.photo_before_url, '_blank')}
+                                                            onClick={() => ticket.photo_before_url && setLightboxUrl(ticket.photo_before_url)}
                                                             className={`text-white text-[10px] font-black uppercase tracking-widest px-6 py-3 ${isDark ? 'bg-[#161b22]' : 'bg-white/10 backdrop-blur-md'} rounded-2xl hover:bg-primary transition-colors shadow-lg`}
                                                         >
                                                             View Full
@@ -1504,10 +1506,21 @@ export default function TicketDetailPage() {
                                                 </>
                                             ) : (
                                                 <>
-                                                    <img src={ticket.photo_after_url} alt="After" className="w-full h-full object-cover" />
+                                                    <img
+                                                        src={ticket.photo_after_url} alt="After"
+                                                        className="w-full h-full object-cover cursor-zoom-in select-none"
+                                                        onClick={() => ticket.photo_after_url && setLightboxUrl(ticket.photo_after_url)}
+                                                        onMouseDown={() => ticket.photo_after_url && startPeek(ticket.photo_after_url)}
+                                                        onMouseUp={endPeek}
+                                                        onMouseLeave={endPeek}
+                                                        onTouchStart={() => ticket.photo_after_url && startPeek(ticket.photo_after_url)}
+                                                        onTouchEnd={endPeek}
+                                                        onContextMenu={e => e.preventDefault()}
+                                                        draggable={false}
+                                                    />
                                                     <div className="absolute inset-0 bg-black/60 flex flex-col items-center justify-center opacity-100 lg:opacity-0 lg:group-hover:opacity-100 transition-opacity gap-3">
                                                         <button
-                                                            onClick={() => ticket.photo_after_url && window.open(ticket.photo_after_url, '_blank')}
+                                                            onClick={() => ticket.photo_after_url && setLightboxUrl(ticket.photo_after_url)}
                                                             className={`text-white text-[10px] font-black uppercase tracking-widest px-6 py-3 ${isDark ? 'bg-[#161b22]' : 'bg-white/10 backdrop-blur-md'} rounded-2xl hover:bg-emerald-500 transition-colors shadow-lg`}
                                                         >
                                                             View Full
@@ -1951,6 +1964,61 @@ export default function TicketDetailPage() {
                     title={previewVideoTitle}
                 />
 
+                {/* Press & Hold Peek — Instagram style */}
+                <AnimatePresence>
+                    {peekUrl && (
+                        <motion.div
+                            initial={{ opacity: 0 }}
+                            animate={{ opacity: 1 }}
+                            exit={{ opacity: 0 }}
+                            transition={{ duration: 0.15 }}
+                            className="fixed inset-0 z-[190] flex items-center justify-center bg-black/70 backdrop-blur-md"
+                            style={{ pointerEvents: 'none' }}
+                        >
+                            <motion.img
+                                initial={{ scale: 0.6, opacity: 0 }}
+                                animate={{ scale: 1, opacity: 1 }}
+                                exit={{ scale: 0.6, opacity: 0 }}
+                                transition={{ type: 'spring', stiffness: 400, damping: 30 }}
+                                src={peekUrl}
+                                alt="Peek"
+                                className="max-w-[85vw] max-h-[85vh] rounded-3xl shadow-2xl object-contain ring-4 ring-white/20"
+                            />
+                        </motion.div>
+                    )}
+                </AnimatePresence>
+
+                {/* Image Lightbox */}
+                <AnimatePresence>
+                    {lightboxUrl && (
+                        <motion.div
+                            initial={{ opacity: 0 }}
+                            animate={{ opacity: 1 }}
+                            exit={{ opacity: 0 }}
+                            transition={{ duration: 0.2 }}
+                            className="fixed inset-0 z-[200] flex items-center justify-center bg-black/90 backdrop-blur-sm p-4"
+                            onClick={() => setLightboxUrl(null)}
+                        >
+                            <motion.img
+                                initial={{ scale: 0.85, opacity: 0 }}
+                                animate={{ scale: 1, opacity: 1 }}
+                                exit={{ scale: 0.85, opacity: 0 }}
+                                transition={{ type: 'spring', stiffness: 300, damping: 28 }}
+                                src={lightboxUrl}
+                                alt="Full view"
+                                className="max-w-full max-h-full rounded-2xl shadow-2xl object-contain"
+                                onClick={e => e.stopPropagation()}
+                            />
+                            <button
+                                onClick={() => setLightboxUrl(null)}
+                                className="absolute top-4 right-4 w-10 h-10 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center text-white transition-colors backdrop-blur-sm"
+                            >
+                                ✕
+                            </button>
+                        </motion.div>
+                    )}
+                </AnimatePresence>
+
                 {/* Rejection Note Modal */}
                 <AnimatePresence>
                     {showRejectModal && (
@@ -1995,6 +2063,14 @@ export default function TicketDetailPage() {
                     )}
                 </AnimatePresence>
             </div>
+
+            <ShareModal
+                isOpen={shareOpen}
+                onClose={() => setShareOpen(false)}
+                ticketId={typeof ticketId === 'string' ? ticketId : ''}
+                ticketNumber={ticket.ticket_number}
+                title={ticket.title}
+            />
         </div>
     );
 }

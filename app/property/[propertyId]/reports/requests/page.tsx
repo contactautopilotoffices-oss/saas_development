@@ -65,6 +65,11 @@ export default function RequestsReportPage() {
     const propertyId = params?.propertyId as string;
 
     const [month, setMonth] = useState(() => searchParams.get('month') || getCurrentMonth());
+    const [dateMode, setDateMode] = useState<'month' | 'custom'>(() =>
+        searchParams.get('startDate') ? 'custom' : 'month'
+    );
+    const [customStart, setCustomStart] = useState(() => searchParams.get('startDate') || '');
+    const [customEnd, setCustomEnd] = useState(() => searchParams.get('endDate') || '');
     const [reportData, setReportData] = useState<ReportData | null>(null);
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
@@ -87,7 +92,7 @@ export default function RequestsReportPage() {
 
     useEffect(() => {
         fetchReportData();
-    }, [month, propertyId]);
+    }, [month, customStart, customEnd, dateMode, propertyId]);
 
     useEffect(() => {
         if (reportData) {
@@ -107,11 +112,15 @@ export default function RequestsReportPage() {
     }, [chartInstances]);
 
     const fetchReportData = async () => {
+        if (dateMode === 'custom' && (!customStart || !customEnd)) return;
         setIsLoading(true);
         setError(null);
         setReportData(null);
         try {
-            const response = await fetch(`/api/reports/requests-report?propertyId=${propertyId}&month=${month}`);
+            const url = dateMode === 'custom'
+                ? `/api/reports/requests-report?propertyId=${propertyId}&startDate=${customStart}&endDate=${customEnd}`
+                : `/api/reports/requests-report?propertyId=${propertyId}&month=${month}`;
+            const response = await fetch(url);
             const data = await response.json();
             if (!response.ok) throw new Error(data.error || 'Failed to fetch report');
             setReportData(data);
@@ -128,7 +137,7 @@ export default function RequestsReportPage() {
 
         // Compute floor data from currently filtered tickets
         const currentFiltered = reportData.tickets.filter(t => {
-            if (reportFilter === 'open') return ['open', 'in_progress', 'assigned', 'paused'].includes(t.status);
+            if (reportFilter === 'open') return !['closed', 'resolved', 'pending_validation'].includes(t.status);
             if (reportFilter === 'pending_validation') return t.status === 'pending_validation';
             if (reportFilter === 'internal') return t.internal === true;
             return true;
@@ -204,6 +213,25 @@ export default function RequestsReportPage() {
 
     };
 
+    // Build filename: PropertyName_Status_Month_Report.pdf
+    // e.g. SS_Plaza_Open_WIP_Ticket_February_Report.pdf
+    const buildPdfFileName = (suffix?: string) => {
+        const propertyPart = (reportData?.property.name || 'Property')
+            .trim().replace(/\s+/g, '_');
+        const statusPart = reportFilter === 'open' ? 'Open_WIP_Ticket'
+            : reportFilter === 'pending_validation' ? 'Pending_Validation'
+            : reportFilter === 'internal' ? 'Internal'
+            : 'All_Tickets';
+        const periodPart = dateMode === 'custom' && customStart && customEnd
+            ? `${customStart}_to_${customEnd}`
+            : (() => {
+                const [y, m] = month.split('-');
+                return new Date(Number(y), Number(m) - 1, 1).toLocaleString('en-US', { month: 'long', year: 'numeric' }).replace(' ', '_');
+            })();
+        const base = `${propertyPart}_${statusPart}_${periodPart}_Report`;
+        return suffix ? `${base}_${suffix}.pdf` : `${base}.pdf`;
+    };
+
     const formatDate = (dateString: string | null) => {
         if (!dateString) return '-';
         return new Date(dateString).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
@@ -227,7 +255,7 @@ export default function RequestsReportPage() {
         const url = URL.createObjectURL(blob);
         const link = document.createElement('a');
         link.href = url;
-        link.download = `requests_${reportFilter}_${reportData.property.code || 'property'}_${month}.csv`;
+        link.download = buildPdfFileName().replace('.pdf', '.csv');
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
@@ -505,7 +533,7 @@ export default function RequestsReportPage() {
             return;
         }
 
-        doc.save(`monthly_report_${month}_${reportData.property.code}.pdf`);
+        doc.save(buildPdfFileName());
         setIsDownloading(false);
         setDownloadProgress(0);
     };
@@ -791,17 +819,349 @@ export default function RequestsReportPage() {
             return;
         }
 
-        doc.save(`selected_tickets_${month}_${reportData.property.code}.pdf`);
+        doc.save(buildPdfFileName('Selected'));
         setIsDownloadingSelected(false);
         setDownloadSelectedProgress(0);
+    };
+
+    // ─── Executive Impact Dashboard PDF ───────────────────────────────────────
+    const [isDownloadingExec, setIsDownloadingExec] = useState(false);
+
+    const handleExecutivePDF = async () => {
+        if (!reportData) return;
+        setIsDownloadingExec(true);
+        try {
+            // Fetch comparison month (previous month in month-mode, else same data)
+            let prevData: ReportData | null = null;
+            if (dateMode === 'month') {
+                const prevMonth = changeMonth(month, -1);
+                const res = await fetch(`/api/reports/requests-report?propertyId=${propertyId}&month=${prevMonth}`);
+                if (res.ok) prevData = await res.json();
+            }
+
+            const doc = new jsPDF('l', 'mm', 'a4'); // landscape 297×210
+            const W = 297; const H = 210;
+            const ML = 10; const MR = 10; const UW = W - ML - MR; // usable width
+
+            const primary: [number, number, number] = [170, 137, 95];   // #AA895F
+            const teal: [number, number, number] = [112, 143, 150];     // #708F96
+            const green: [number, number, number] = [34, 197, 94];
+            const red: [number, number, number] = [248, 113, 113];
+            const dark: [number, number, number] = [30, 30, 30];
+            const mid: [number, number, number] = [100, 100, 100];
+            const light: [number, number, number] = [240, 240, 240];
+
+            // ── determine two periods ──────────────────────────────────────────
+            const curData = reportData;
+            const hasPrev = !!prevData;
+
+            const curLabel = curData.month.label;
+            const prevLabel = prevData?.month.label || '';
+            const rangeLabel = hasPrev ? `${prevLabel} – ${curLabel}` : curLabel;
+
+            const periods: { label: string; data: ReportData }[] = [];
+            if (hasPrev && prevData) periods.push({ label: prevLabel, data: prevData });
+            periods.push({ label: curLabel, data: curData });
+
+            // ── 1. Header bar ─────────────────────────────────────────────────
+            doc.setFillColor(...dark);
+            doc.rect(0, 0, W, 18, 'F');
+
+            doc.setFontSize(6); doc.setFont('helvetica', 'bold');
+            doc.setTextColor(255, 255, 255);
+            doc.text('AUTOPILOT', ML, 11);
+
+            doc.setFontSize(14); doc.setFont('helvetica', 'bold');
+            doc.setTextColor(255, 255, 255);
+            doc.text('FMS Executive Impact Dashboard', W / 2, 11, { align: 'center' });
+
+            // Badge top-right
+            doc.setFillColor(...primary);
+            doc.roundedRect(W - ML - 38, 4, 36, 10, 2, 2, 'F');
+            doc.setFontSize(7); doc.setFont('helvetica', 'bold');
+            doc.setTextColor(255, 255, 255);
+            doc.text(rangeLabel, W - ML - 20, 10.5, { align: 'center' });
+
+            // Sub-title
+            doc.setFontSize(8); doc.setFont('helvetica', 'normal');
+            doc.setTextColor(...teal);
+            doc.text(`${curData.property.name} - Facility Management System Performance`, W / 2, 16, { align: 'center' });
+
+            // ── 2. KPI cards ──────────────────────────────────────────────────
+            const yKPI = 22;
+            const cardCount = hasPrev ? 4 : 3;
+            const cardW = (UW - (cardCount - 1) * 3) / cardCount;
+
+            const kpiCards = hasPrev && prevData ? [
+                { title: 'TOTAL TICKETS MANAGED', value: String(curData.kpis.totalSnags + prevData.kpis.totalSnags), sub: `Across ${rangeLabel}` },
+                { title: `${prevLabel.toUpperCase()} CLOSURE RATE`, value: `${prevData.kpis.closureRate}%`, sub: `${prevData.kpis.closedSnags} of ${prevData.kpis.totalSnags} tickets closed` },
+                { title: `${curLabel.toUpperCase()} CLOSURE RATE`, value: `${curData.kpis.closureRate}%`, sub: `${curData.kpis.closedSnags} of ${curData.kpis.totalSnags} tickets closed` },
+                { title: `OPEN TICKETS (${curLabel.split(' ')[0].toUpperCase()})`, value: String(curData.kpis.openSnags), sub: 'Requires immediate attention' },
+            ] : [
+                { title: 'TOTAL TICKETS', value: String(curData.kpis.totalSnags), sub: curLabel },
+                { title: 'CLOSED', value: String(curData.kpis.closedSnags), sub: `${curData.kpis.closureRate}% closure rate` },
+                { title: 'OPEN / WIP', value: String(curData.kpis.openSnags), sub: 'Requires attention' },
+            ];
+
+            kpiCards.forEach((card, i) => {
+                const x = ML + i * (cardW + 3);
+                doc.setFillColor(255, 255, 255);
+                doc.setDrawColor(...light);
+                doc.roundedRect(x, yKPI, cardW, 20, 1.5, 1.5, 'FD');
+                doc.setFontSize(5.5); doc.setFont('helvetica', 'bold');
+                doc.setTextColor(...mid);
+                doc.text(card.title, x + cardW / 2, yKPI + 5, { align: 'center' });
+                doc.setFontSize(15); doc.setFont('helvetica', 'bold');
+                doc.setTextColor(...dark);
+                doc.text(card.value, x + cardW / 2, yKPI + 13, { align: 'center' });
+                doc.setFontSize(5.5); doc.setFont('helvetica', 'normal');
+                doc.setTextColor(...mid);
+                doc.text(card.sub, x + cardW / 2, yKPI + 18, { align: 'center' });
+            });
+
+            // ── 3. Charts row ─────────────────────────────────────────────────
+            const yCharts = 47;
+            const chartH = 52;
+            const chartW2 = (UW - 5) / 2;
+
+            // Chart box backgrounds
+            doc.setFillColor(255, 255, 255); doc.setDrawColor(...light);
+            doc.roundedRect(ML, yCharts, chartW2, chartH, 1.5, 1.5, 'FD');
+            doc.roundedRect(ML + chartW2 + 5, yCharts, chartW2, chartH, 1.5, 1.5, 'FD');
+
+            // Chart A: Monthly Ticket Volume Comparison (grouped bars)
+            {
+                const cX = ML + 3; const cY = yCharts + 3; const cW = chartW2 - 6; const cH = chartH - 10;
+                doc.setFontSize(6.5); doc.setFont('helvetica', 'bold');
+                doc.setTextColor(...teal);
+                doc.text('Monthly Ticket Volume Comparison', cX + cW / 2, cY + 4, { align: 'center' });
+
+                const allVals = periods.flatMap(p => [p.data.kpis.totalSnags, p.data.kpis.closedSnags, p.data.kpis.openSnags]);
+                const maxVal = Math.max(...allVals, 1);
+                const barAreaY = cY + 12; const barAreaH = cH - 14;
+                const groupW = cW / (periods.length + 1);
+                const barW3 = groupW * 0.2;
+
+                periods.forEach((p, gi) => {
+                    const gX = cX + groupW * (gi + 0.5);
+                    const bars = [
+                        { val: p.data.kpis.totalSnags, color: dark },
+                        { val: p.data.kpis.closedSnags, color: green },
+                        { val: p.data.kpis.openSnags, color: red },
+                    ];
+                    bars.forEach((b, bi) => {
+                        const bX = gX + (bi - 1) * (barW3 + 0.5);
+                        const bH = Math.max(1, (b.val / maxVal) * barAreaH);
+                        doc.setFillColor(...b.color);
+                        doc.rect(bX, barAreaY + barAreaH - bH, barW3, bH, 'F');
+                        doc.setFontSize(4.5); doc.setFont('helvetica', 'bold');
+                        doc.setTextColor(...dark);
+                        doc.text(String(b.val), bX + barW3 / 2, barAreaY + barAreaH - bH - 1, { align: 'center' });
+                    });
+                    // Month label
+                    const shortLabel = p.label.split(' ')[0];
+                    doc.setFontSize(5); doc.setTextColor(...mid);
+                    doc.text(shortLabel, gX + barW3 / 2, barAreaY + barAreaH + 4, { align: 'center' });
+                });
+
+                // Legend
+                const legY = cY + 7;
+                const legItems = [{ label: 'Total', color: dark }, { label: 'Closed', color: green }, { label: 'Open', color: red }];
+                legItems.forEach((l, i) => {
+                    const lX = cX + i * 18;
+                    doc.setFillColor(...l.color); doc.rect(lX, legY - 2.5, 3, 3, 'F');
+                    doc.setFontSize(4.5); doc.setTextColor(...mid);
+                    doc.text(l.label, lX + 4, legY);
+                });
+            }
+
+            // Chart B: Closure Rate Performance (line chart)
+            {
+                const cX = ML + chartW2 + 8; const cY = yCharts + 3; const cW = chartW2 - 6; const cH = chartH - 10;
+                doc.setFontSize(6.5); doc.setFont('helvetica', 'bold');
+                doc.setTextColor(...teal);
+                doc.text('Closure Rate Performance', cX + cW / 2, cY + 4, { align: 'center' });
+
+                const plotX = cX + 10; const plotY = cY + 10; const plotW = cW - 12; const plotH = cH - 16;
+
+                // Y axis labels
+                [0, 50, 100].forEach(v => {
+                    const y2 = plotY + plotH - (v / 100) * plotH;
+                    doc.setFontSize(4); doc.setTextColor(...mid);
+                    doc.text(`${v}`, plotX - 2, y2 + 1, { align: 'right' });
+                    doc.setDrawColor(...light);
+                    doc.line(plotX, y2, plotX + plotW, y2);
+                });
+
+                // Target 95% dashed line
+                const targetY = plotY + plotH - (95 / 100) * plotH;
+                doc.setDrawColor(200, 200, 200);
+                for (let dx = 0; dx < plotW; dx += 4) {
+                    doc.line(plotX + dx, targetY, plotX + Math.min(dx + 2, plotW), targetY);
+                }
+                doc.setFontSize(4); doc.setTextColor(150, 150, 150);
+                doc.text('Target (95%)', plotX + plotW + 1, targetY + 1);
+
+                // Data line
+                const rates = periods.map(p => p.data.kpis.closureRate);
+                const points = rates.map((r, i) => ({
+                    x: plotX + (periods.length === 1 ? plotW / 2 : (i / (periods.length - 1)) * plotW),
+                    y: plotY + plotH - (r / 100) * plotH,
+                    r,
+                }));
+
+                doc.setDrawColor(...teal);
+                doc.setLineWidth(0.8);
+                for (let i = 0; i < points.length - 1; i++) {
+                    doc.line(points[i].x, points[i].y, points[i + 1].x, points[i + 1].y);
+                }
+                doc.setLineWidth(0.2);
+
+                points.forEach((pt, i) => {
+                    doc.setFillColor(...teal);
+                    doc.circle(pt.x, pt.y, 1.5, 'F');
+                    doc.setFontSize(5); doc.setFont('helvetica', 'bold');
+                    doc.setTextColor(...teal);
+                    doc.text(`${pt.r}%`, pt.x, pt.y - 3, { align: 'center' });
+                    // x label
+                    const shortLabel = periods[i].label.split(' ')[0];
+                    doc.setFontSize(4.5); doc.setTextColor(...mid);
+                    doc.text(shortLabel, pt.x, plotY + plotH + 4, { align: 'center' });
+                });
+            }
+
+            // ── 4. Bottom 3-col section ───────────────────────────────────────
+            const yBot = yCharts + chartH + 5;
+            const botH = H - yBot - 28;
+            const colW = (UW - 2 * 3) / 3;
+
+            // helper: top N categories for a dataset
+            const topCategories = (data: ReportData, n: number) => {
+                const map: Record<string, number> = {};
+                data.tickets.forEach(t => {
+                    const c = t.category || 'Other';
+                    map[c] = (map[c] || 0) + 1;
+                });
+                return Object.entries(map).sort((a, b) => b[1] - a[1]).slice(0, n);
+            };
+
+            const renderCatChart = (x: number, y: number, w: number, h: number, title: string, cats: [string, number][]) => {
+                doc.setFillColor(255, 255, 255); doc.setDrawColor(...light);
+                doc.roundedRect(x, y, w, h, 1.5, 1.5, 'FD');
+                doc.setFontSize(6); doc.setFont('helvetica', 'bold'); doc.setTextColor(...teal);
+                doc.text(title, x + w / 2, y + 5, { align: 'center' });
+                const maxVal = cats[0]?.[1] || 1;
+                const rowH2 = (h - 10) / Math.max(cats.length, 1);
+                cats.forEach(([label, count], i) => {
+                    const ry = y + 9 + i * rowH2;
+                    const barMaxW = w - 30;
+                    const barW4 = Math.max(1, (count / maxVal) * barMaxW);
+                    const shortLbl = label.length > 14 ? label.slice(0, 12) + '…' : label;
+                    doc.setFontSize(4.5); doc.setFont('helvetica', 'normal'); doc.setTextColor(...mid);
+                    doc.text(shortLbl, x + 17, ry + rowH2 * 0.6, { align: 'right' });
+                    doc.setFillColor(...teal);
+                    doc.roundedRect(x + 19, ry + rowH2 * 0.1, barW4, rowH2 * 0.6, 0.5, 0.5, 'F');
+                    doc.setFontSize(4.5); doc.setFont('helvetica', 'bold'); doc.setTextColor(...dark);
+                    doc.text(String(count), x + 19 + barW4 + 1.5, ry + rowH2 * 0.6);
+                });
+            };
+
+            if (hasPrev && prevData) {
+                renderCatChart(ML, yBot, colW, botH, `Top Categories – ${prevLabel}`, topCategories(prevData, 7));
+                renderCatChart(ML + colW + 3, yBot, colW, botH, `Top Categories – ${curLabel}`, topCategories(curData, 7));
+            } else {
+                renderCatChart(ML, yBot, colW * 1.5 + 1.5, botH, `Top Categories – ${curLabel}`, topCategories(curData, 7));
+            }
+
+            // Right col: Key Insights
+            const insX = hasPrev ? ML + (colW + 3) * 2 : ML + colW * 1.5 + 4.5;
+            const insW = hasPrev ? colW : colW * 1.5;
+            doc.setFillColor(255, 255, 255); doc.setDrawColor(...light);
+            doc.roundedRect(insX, yBot, insW, botH, 1.5, 1.5, 'FD');
+            doc.setFontSize(6); doc.setFont('helvetica', 'bold'); doc.setTextColor(...teal);
+            doc.text('Key Accountability Insights', insX + insW / 2, yBot + 5, { align: 'center' });
+
+            const insights: string[] = [];
+            periods.forEach(p => {
+                const rate = p.data.kpis.closureRate;
+                const status = rate >= 90 ? 'excellent performance' : rate >= 70 ? 'good progress' : 'needs attention';
+                insights.push(`${p.label}: ${rate}% closure rate – ${status}`);
+            });
+            if (curData.kpis.openSnags > 0) insights.push(`${curData.kpis.openSnags} open tickets need resolution`);
+            if (curData.kpis.pendingValidationCount > 0) insights.push(`${curData.kpis.pendingValidationCount} tickets pending validation`);
+            const topCat = topCategories(curData, 1);
+            if (topCat.length > 0) insights.push(`Top issue: ${topCat[0][0]} (${topCat[0][1]} tickets)`);
+            if (hasPrev && prevData) {
+                const diff = curData.kpis.totalSnags - prevData.kpis.totalSnags;
+                if (diff > 0) insights.push(`Ticket volume up ${diff} from ${prevLabel.split(' ')[0]}`);
+                else if (diff < 0) insights.push(`Ticket volume down ${Math.abs(diff)} vs ${prevLabel.split(' ')[0]}`);
+            }
+
+            let iy = yBot + 10;
+            insights.forEach(ins => {
+                doc.setFillColor(...primary);
+                doc.circle(insX + 4, iy - 0.5, 1, 'F');
+                doc.setFontSize(5); doc.setFont('helvetica', 'normal'); doc.setTextColor(...dark);
+                const lines = doc.splitTextToSize(ins, insW - 10);
+                doc.text(lines, insX + 7, iy);
+                iy += lines.length * 4.5 + 2;
+            });
+
+            // ── 5. Summary table ──────────────────────────────────────────────
+            const yTable = H - 24;
+            const headers = ['Month', 'Total', 'Closed', 'Open/WIP', 'Pending', 'Closure Rate', 'Top Category', 'Status'];
+            const colWidths = [30, 18, 18, 18, 18, 24, 60, 26];
+            let tx = ML;
+            doc.setFillColor(...teal);
+            doc.rect(ML, yTable, UW, 6, 'F');
+            doc.setFontSize(5.5); doc.setFont('helvetica', 'bold'); doc.setTextColor(255, 255, 255);
+            headers.forEach((h2, i) => {
+                doc.text(h2, tx + colWidths[i] / 2, yTable + 4, { align: 'center' });
+                tx += colWidths[i];
+            });
+
+            periods.forEach((p, ri) => {
+                const ry2 = yTable + 6 + ri * 7;
+                doc.setFillColor(ri % 2 === 0 ? 248 : 255, ri % 2 === 0 ? 250 : 255, ri % 2 === 0 ? 252 : 255);
+                doc.rect(ML, ry2, UW, 7, 'F');
+                const rate2 = p.data.kpis.closureRate;
+                const status2 = rate2 >= 90 ? 'Excellent' : rate2 >= 70 ? 'Good' : 'Needs Attention';
+                const statusColor: [number, number, number] = rate2 >= 90 ? green : rate2 >= 70 ? [234, 179, 8] : red;
+                const topCatRow = topCategories(p.data, 1);
+                const row = [
+                    p.label, String(p.data.kpis.totalSnags), String(p.data.kpis.closedSnags),
+                    String(p.data.kpis.openSnags), String(p.data.kpis.pendingValidationCount),
+                    `${rate2}%`, topCatRow[0] ? `${topCatRow[0][0]} (${topCatRow[0][1]})` : '-', status2,
+                ];
+                let rx = ML;
+                row.forEach((cell, ci) => {
+                    doc.setFontSize(5.5); doc.setFont('helvetica', ci === 7 ? 'bold' : 'normal');
+                    doc.setTextColor(...(ci === 7 ? statusColor : dark));
+                    doc.text(cell, rx + colWidths[ci] / 2, ry2 + 4.5, { align: 'center' });
+                    rx += colWidths[ci];
+                });
+            });
+
+            // ── 6. Footer ─────────────────────────────────────────────────────
+            const yFoot = H - 5;
+            doc.setFontSize(5); doc.setFont('helvetica', 'normal'); doc.setTextColor(...mid);
+            const genDate = new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'long', year: 'numeric' });
+            doc.text(`FMS Impact Report | ${curData.property.name}`, ML, yFoot);
+            doc.text(`Generated: ${genDate} | Data Source: ${curData.property.name} Ticket Management System`, W - MR, yFoot, { align: 'right' });
+
+            doc.save(`${(curData.property.name || 'Property').replace(/\s+/g, '_')}_Executive_Dashboard_${rangeLabel.replace(/\s|–/g, '_')}.pdf`);
+        } finally {
+            setIsDownloadingExec(false);
+        }
     };
 
     // Determine if property has any pending_validation tickets
     const hasPendingValidation = reportData?.tickets.some(t => t.status === 'pending_validation') ?? false;
 
     // Filter tickets based on selected report filter
+    // 'open' matches the API's openSnags: anything not closed/resolved/pending_validation
     const filteredTickets = reportData ? reportData.tickets.filter(t => {
-        if (reportFilter === 'open') return ['open', 'in_progress', 'assigned', 'paused'].includes(t.status);
+        if (reportFilter === 'open') return !['closed', 'resolved', 'pending_validation'].includes(t.status);
         if (reportFilter === 'pending_validation') return t.status === 'pending_validation';
         if (reportFilter === 'internal') return t.internal === true;
         return true; // 'all'
@@ -913,28 +1273,69 @@ export default function RequestsReportPage() {
                             Back to Reports
                         </button>
 
-                        {/* Month Picker */}
-                        <div className="flex items-center gap-2 bg-white border border-gray-200 rounded-lg px-3 py-2">
-                            <button
-                                onClick={() => setMonth(prev => changeMonth(prev, -1))}
-                                className="p-1 hover:bg-gray-100 rounded transition-colors"
-                            >
-                                <ChevronLeft className="w-4 h-4 text-gray-600" />
-                            </button>
-                            <input
-                                type="month"
-                                value={month}
-                                onChange={(e) => setMonth(e.target.value)}
-                                className="text-sm font-medium text-gray-700 bg-transparent outline-none"
-                                max={getCurrentMonth()}
-                            />
-                            <button
-                                onClick={() => setMonth(prev => changeMonth(prev, 1))}
-                                disabled={month >= getCurrentMonth()}
-                                className="p-1 hover:bg-gray-100 rounded transition-colors disabled:opacity-40"
-                            >
-                                <ChevronRight className="w-4 h-4 text-gray-600" />
-                            </button>
+                        {/* Date Mode Toggle + Picker — combined in one box */}
+                        <div className="flex items-center gap-0 bg-white border border-gray-200 rounded-lg overflow-hidden">
+                            {/* Mode toggle pills inside the box */}
+                            <div className="flex items-center bg-gray-100 m-1.5 rounded-md p-0.5 gap-0.5 shrink-0">
+                                <button
+                                    onClick={() => setDateMode('month')}
+                                    className={`px-2.5 py-1 rounded text-xs font-semibold transition-all ${dateMode === 'month' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                                >
+                                    Month
+                                </button>
+                                <button
+                                    onClick={() => setDateMode('custom')}
+                                    className={`px-2.5 py-1 rounded text-xs font-semibold transition-all ${dateMode === 'custom' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                                >
+                                    Custom
+                                </button>
+                            </div>
+
+                            <div className="w-px h-6 bg-gray-200" />
+
+                            {dateMode === 'month' ? (
+                                <div className="flex items-center gap-1 px-2 py-2">
+                                    <button
+                                        onClick={() => setMonth(prev => changeMonth(prev, -1))}
+                                        className="p-0.5 hover:bg-gray-100 rounded transition-colors"
+                                    >
+                                        <ChevronLeft className="w-4 h-4 text-gray-600" />
+                                    </button>
+                                    <input
+                                        type="month"
+                                        value={month}
+                                        onChange={(e) => setMonth(e.target.value)}
+                                        className="text-sm font-medium text-gray-700 bg-transparent outline-none"
+                                        max={getCurrentMonth()}
+                                    />
+                                    <button
+                                        onClick={() => setMonth(prev => changeMonth(prev, 1))}
+                                        disabled={month >= getCurrentMonth()}
+                                        className="p-0.5 hover:bg-gray-100 rounded transition-colors disabled:opacity-40"
+                                    >
+                                        <ChevronRight className="w-4 h-4 text-gray-600" />
+                                    </button>
+                                </div>
+                            ) : (
+                                <div className="flex items-center gap-2 px-3 py-2">
+                                    <input
+                                        type="date"
+                                        value={customStart}
+                                        max={customEnd || undefined}
+                                        onChange={(e) => setCustomStart(e.target.value)}
+                                        className="text-sm text-gray-700 bg-transparent outline-none"
+                                    />
+                                    <span className="text-gray-400 text-sm">–</span>
+                                    <input
+                                        type="date"
+                                        value={customEnd}
+                                        min={customStart || undefined}
+                                        max={new Date().toISOString().split('T')[0]}
+                                        onChange={(e) => setCustomEnd(e.target.value)}
+                                        className="text-sm text-gray-700 bg-transparent outline-none"
+                                    />
+                                </div>
+                            )}
                         </div>
 
                         <div className="flex items-center gap-2 flex-wrap">
@@ -1004,6 +1405,17 @@ export default function RequestsReportPage() {
                                     {isDownloading && <span className="ml-1">({downloadProgress}%)</span>}
                                 </button>
                             )}
+                            {/* Executive Dashboard PDF */}
+                            <button
+                                onClick={handleExecutivePDF}
+                                disabled={!reportData || isDownloadingExec}
+                                className="flex items-center gap-2 bg-[#1e1e2e] text-white px-4 py-2 rounded-full text-sm font-semibold hover:bg-[#2d2d3d] transition-colors shadow-sm disabled:opacity-50"
+                                title="Generate Executive Impact Dashboard PDF"
+                            >
+                                {isDownloadingExec ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileDown className="w-4 h-4" />}
+                                Executive Report
+                            </button>
+
                             {/* Download Selected PDF button */}
                             {isDownloadingSelected ? (
                                 <div className="flex items-center bg-[#708F96] text-white px-4 py-2 rounded-full text-sm font-semibold shadow-sm gap-3">

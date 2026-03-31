@@ -257,7 +257,7 @@ const AddMemberModal = ({ isOpen, onClose, orgId, orgName, properties, fixedProp
                                         <optgroup label="Other">
                                             <option value="security">Security</option>
                                             <option value="tenant">Client</option>
-                                            <option value="vendor">Vendor</option>
+                                            <option value="vendor">Food Vendor</option>
                                             <option value="super_tenant">Super Client</option>
                                         </optgroup>
                                     </select>

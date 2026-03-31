@@ -6,6 +6,7 @@ import OrgAdminDashboard from './OrgAdminDashboard';
 import MasterAdminDashboard from './MasterAdminDashboard';
 import SoftServiceManagerDashboard from './SoftServiceManagerDashboard';
 import SuperTenantDashboard from './SuperTenantDashboard';
+import VendorDashboard from '@/frontend/components/vendors/VendorDashboard';
 import Loader from '@/frontend/components/ui/Loader';
 import { useAppSession } from '@/frontend/hooks/useAppSession';
 import { AlertCircle } from 'lucide-react';
@@ -48,6 +49,13 @@ const UnifiedDashboard = () => {
 
     if (role === 'property_admin') {
         return <PropertyAdminDashboard />;
+    }
+
+    // Maintenance Vendor — their own task dashboard
+    // NOTE: food vendors use role='vendor' on property_memberships → /property/:id/vendor
+    // Maintenance vendors use role='maintenance_vendor' on organization_memberships → here
+    if (role === 'maintenance_vendor') {
+        return <VendorDashboard />;
     }
 
     // Default Fallback - Avoid TenantDashboard as requested

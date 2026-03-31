@@ -127,8 +127,8 @@ export default function TicketDetail({ ticketId, onBack, isAdmin = false }: Tick
     const fetchTicketDetail = async () => {
         try {
             const response = await fetch(`/api/tickets/${ticketId}`);
-            const data = await response.json();
             if (response.ok) {
+                const data = await response.json();
                 setTicket(data.ticket);
                 setTimeline(data.timeline || []);
                 setComments(data.comments || []);
@@ -216,8 +216,10 @@ export default function TicketDetail({ ticketId, onBack, isAdmin = false }: Tick
 
             const res = await fetch(endpoint, { method: 'POST', body: formData });
             if (!res.ok) {
-                const err = await res.json();
-                throw new Error(err.error || 'Upload failed');
+                const text = await res.text();
+                let err;
+                try { err = JSON.parse(text); } catch { throw new Error(`HTTP Error ${res.status}`); }
+                throw new Error(err?.error || 'Upload failed');
             }
             await fetchTicketDetail();
         } catch (err) {

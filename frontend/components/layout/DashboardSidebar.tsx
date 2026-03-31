@@ -111,29 +111,31 @@ export default function DashboardSidebar({ isMobileOpen, onMobileClose }: Dashbo
                 {/* Bottom Section */}
                 <div className="p-4 pb-12 mt-auto space-y-3 border-t border-border flex-shrink-0 bg-white">
                     {/* User Profile */}
-                    <div className="px-3 py-3 rounded-[var(--radius-lg)] border border-border/5">
-                        <div className="flex items-center gap-3">
-                            {user?.user_metadata?.user_photo_url || user?.user_metadata?.avatar_url ? (
-                                <img
-                                    src={user.user_metadata.user_photo_url || user.user_metadata.avatar_url}
-                                    alt="Profile"
-                                    className="w-10 h-10 rounded-full object-cover border border-border shrink-0"
-                                />
-                            ) : (
-                                <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center text-primary font-display font-bold text-sm shrink-0">
-                                    {getUserInitials(user?.email || 'User')}
+                    {user?.user_metadata?.role !== 'org_super_admin' && (
+                        <div className="px-3 py-3 rounded-[var(--radius-lg)] border border-border/5">
+                            <div className="flex items-center gap-3">
+                                {user?.user_metadata?.user_photo_url || user?.user_metadata?.avatar_url ? (
+                                    <img
+                                        src={user.user_metadata.user_photo_url || user.user_metadata.avatar_url}
+                                        alt="Profile"
+                                        className="w-10 h-10 rounded-full object-cover border border-border shrink-0"
+                                    />
+                                ) : (
+                                    <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center text-primary font-display font-bold text-sm shrink-0">
+                                        {getUserInitials(user?.email || 'User')}
+                                    </div>
+                                )}
+                                <div className="flex flex-col flex-1 min-w-0">
+                                    <span className="text-xs font-semibold text-text-primary font-body truncate">
+                                        {user?.user_metadata?.full_name || user?.email?.split('@')[0] || 'User'}
+                                    </span>
+                                    <span className="text-[10px] text-text-tertiary font-body font-medium">
+                                        {user?.user_metadata?.role || 'User'}
+                                    </span>
                                 </div>
-                            )}
-                            <div className="flex flex-col flex-1 min-w-0">
-                                <span className="text-xs font-semibold text-text-primary font-body truncate">
-                                    {user?.user_metadata?.full_name || user?.email?.split('@')[0] || 'User'}
-                                </span>
-                                <span className="text-[10px] text-text-tertiary font-body font-medium">
-                                    {user?.user_metadata?.role || 'User'}
-                                </span>
                             </div>
                         </div>
-                    </div>
+                    )}
 
                     {/* Action Buttons */}
                     <div className="space-y-1">

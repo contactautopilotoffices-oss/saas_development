@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
-import { Plus, Send, Star, User, ChevronRight, X, MessageSquare, Loader2, CheckCircle, Camera, Filter, Video, Play, Pause, Activity } from 'lucide-react';
+import { Plus, Send, Star, User, ChevronRight, X, MessageSquare, Loader2, CheckCircle, Camera, Filter, Video, Play, Pause, Activity, AtSign } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useTheme } from '@/frontend/context/ThemeContext';
@@ -19,7 +19,6 @@ interface Ticket {
     created_at: string;
     assigned_at: string | null;
     sla_deadline: string | null;
-    sla_paused: boolean;
     total_paused_minutes: number;
     category?: { name: string; code: string };
     assignee?: { full_name: string };
@@ -72,9 +71,66 @@ export default function TenantTicketingDashboard({
     const [isCritical, setIsCritical] = useState(false);
     const [ratingTicket, setRatingTicket] = useState<Ticket | null>(null);
     const [selectedRating, setSelectedRating] = useState(0);
+
+    // @mention state
+    const textareaRef = useRef<HTMLTextAreaElement>(null);
+    const [propertyUsers, setPropertyUsers] = useState<{ id: string; full_name: string; role?: string }[]>([]);
+    const [mentionQuery, setMentionQuery] = useState('');
+    const [mentionStartIndex, setMentionStartIndex] = useState(-1);
+    const [showMentionDropdown, setShowMentionDropdown] = useState(false);
+    const [taggedUser, setTaggedUser] = useState<{ id: string; full_name: string } | null>(null);
     const [filter, setFilter] = useState<'all' | 'in_progress' | 'completed'>(
         (searchParams.get('filter') as any) || 'all'
     );
+
+    // Fetch property users for @mention
+    useEffect(() => {
+        if (!propertyId) return;
+        supabase
+            .from('property_memberships')
+            .select('user:users(id, full_name), role')
+            .eq('property_id', propertyId)
+            .eq('is_active', true)
+            .then(({ data }) => {
+                const users = (data || [])
+                    .map((m: any) => ({ id: m.user?.id, full_name: m.user?.full_name, role: m.role }))
+                    .filter((u: any) => u.id && u.full_name);
+                setPropertyUsers(users);
+            });
+    }, [propertyId]);
+
+    const handleDescriptionChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+        const val = e.target.value;
+        setDescription(val);
+        const cursor = e.target.selectionStart ?? val.length;
+        const textBeforeCursor = val.slice(0, cursor);
+        const atIndex = textBeforeCursor.lastIndexOf('@');
+        if (atIndex !== -1) {
+            const query = textBeforeCursor.slice(atIndex + 1);
+            if (!query.includes(' ') && !query.includes('\n')) {
+                setMentionQuery(query);
+                setMentionStartIndex(atIndex);
+                setShowMentionDropdown(true);
+                return;
+            }
+        }
+        setShowMentionDropdown(false);
+        setMentionQuery('');
+    };
+
+    const handleMentionSelect = (u: { id: string; full_name: string }) => {
+        const before = description.slice(0, mentionStartIndex);
+        const after = description.slice(mentionStartIndex + 1 + mentionQuery.length);
+        setDescription(`${before}@${u.full_name} ${after}`);
+        setTaggedUser(u);
+        setShowMentionDropdown(false);
+        setMentionQuery('');
+        setTimeout(() => textareaRef.current?.focus(), 0);
+    };
+
+    const filteredMentionUsers = mentionQuery
+        ? propertyUsers.filter(u => u.full_name.toLowerCase().includes(mentionQuery.toLowerCase()))
+        : propertyUsers;
 
     useEffect(() => {
         fetchTickets();
@@ -132,6 +188,7 @@ export default function TenantTicketingDashboard({
                     propertyId,
                     organizationId,
                     isInternal,
+                    assignedTo: taggedUser?.id,
                     priority: isCritical ? 'critical' : 'low',
                 }),
             });
@@ -160,6 +217,9 @@ export default function TenantTicketingDashboard({
 
                 setDescription('');
                 setIsCritical(false);
+                setTaggedUser(null);
+                setShowMentionDropdown(false);
+                setMentionQuery('');
                 if (mediaFile?.preview.startsWith('blob:')) URL.revokeObjectURL(mediaFile.preview);
                 setMediaFile(null);
                 setIsVideoPlaying(false);
@@ -198,7 +258,7 @@ export default function TenantTicketingDashboard({
     // Real SLA progress calculation
     const getSLAProgress = (ticket: Ticket) => {
         if (!ticket.assigned_at || !ticket.sla_deadline) return null;
-        if (ticket.sla_paused) return { progress: 0, text: 'Paused', color: 'text-yellow-400' };
+
 
         const start = new Date(ticket.assigned_at).getTime();
         const end = new Date(ticket.sla_deadline).getTime();
@@ -263,13 +323,61 @@ export default function TenantTicketingDashboard({
 
                             <div className="relative group">
                                 <textarea
+                                    ref={textareaRef}
                                     value={description}
-                                    onChange={(e) => setDescription(e.target.value)}
-                                    placeholder="Describe the issue in your own words...&#10;Example: Leaking tap in kitchenette, 2nd floor"
+                                    onChange={handleDescriptionChange}
+                                    onKeyDown={(e) => { if (showMentionDropdown && e.key === 'Escape') { setShowMentionDropdown(false); e.preventDefault(); } }}
+                                    placeholder="Describe the issue in your own words...&#10;Type @ to assign someone"
                                     className="w-full h-32 md:h-40 bg-surface-elevated text-text-primary border-border border rounded-2xl p-4 md:p-6 placeholder-text-tertiary resize-none focus:outline-none focus:ring-2 focus:ring-primary/10 transition-all font-medium"
                                 />
                                 {!isDark && <div className="absolute inset-0 rounded-2xl border border-primary/5 pointer-events-none group-focus-within:border-primary/20 transition-smooth"></div>}
+
+                                {/* @mention dropdown */}
+                                {showMentionDropdown && filteredMentionUsers.length > 0 && (
+                                    <div className="absolute left-0 right-0 top-full mt-1 bg-white border border-slate-200 rounded-xl shadow-xl z-50 max-h-48 overflow-y-auto">
+                                        <div className="px-3 py-2 border-b border-slate-100 flex items-center gap-1.5">
+                                            <AtSign className="w-3 h-3 text-primary" />
+                                            <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Assign to</span>
+                                        </div>
+                                        {filteredMentionUsers.map(u => (
+                                            <button
+                                                key={u.id}
+                                                type="button"
+                                                onMouseDown={(e) => { e.preventDefault(); handleMentionSelect(u); }}
+                                                className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-slate-50 transition-colors text-left"
+                                            >
+                                                <div className="w-7 h-7 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
+                                                    <span className="text-[10px] font-bold text-primary">
+                                                        {u.full_name.split(' ').map((n: string) => n[0]).join('').slice(0, 2).toUpperCase()}
+                                                    </span>
+                                                </div>
+                                                <div>
+                                                    <p className="text-sm font-semibold text-slate-900">{u.full_name}</p>
+                                                    {u.role && <p className="text-[10px] text-slate-400 capitalize">{u.role.replace(/_/g, ' ')}</p>}
+                                                </div>
+                                            </button>
+                                        ))}
+                                    </div>
+                                )}
                             </div>
+
+                            {/* Tagged user chip */}
+                            {taggedUser && (
+                                <div className="mt-2 flex items-center gap-2">
+                                    <span className="text-xs text-slate-500">Assigned to:</span>
+                                    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-primary/10 text-primary rounded-full text-xs font-bold">
+                                        <AtSign className="w-3 h-3" />
+                                        {taggedUser.full_name}
+                                        <button
+                                            type="button"
+                                            onClick={() => { setTaggedUser(null); setDescription(description.replace(`@${taggedUser.full_name} `, '').replace(`@${taggedUser.full_name}`, '')); }}
+                                            className="ml-0.5 hover:text-red-500 transition-colors"
+                                        >
+                                            <X className="w-3 h-3" />
+                                        </button>
+                                    </span>
+                                </div>
+                            )}
 
                             {/* Media Preview (photo or video) */}
                             {mediaFile && (

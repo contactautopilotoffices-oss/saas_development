@@ -107,8 +107,6 @@ export async function PATCH(
             status,
             assigned_to,
             priority,
-            sla_paused,
-            sla_pause_reason,
             resolution_notes,
             photo_before_url,
             photo_after_url,
@@ -428,32 +426,6 @@ export async function PATCH(
                     assigned_from: currentTicket.assigned_to || null,
                     assigned_to: assigned_to,
                 },
-            });
-        }
-
-        // Handle SLA pause/resume
-        if (sla_paused !== undefined && sla_paused !== currentTicket.sla_paused) {
-            updates.sla_paused = sla_paused;
-
-            if (sla_paused) {
-                updates.sla_paused_at = new Date().toISOString();
-                updates.sla_pause_reason = sla_pause_reason || 'Paused by admin';
-            } else if (currentTicket.sla_paused_at) {
-                const pausedMinutes = Math.floor((Date.now() - new Date(currentTicket.sla_paused_at).getTime()) / 60000);
-                updates.total_paused_minutes = (currentTicket.total_paused_minutes || 0) + pausedMinutes;
-
-                if (currentTicket.sla_deadline) {
-                    const newDeadline = new Date(currentTicket.sla_deadline);
-                    newDeadline.setMinutes(newDeadline.getMinutes() + pausedMinutes);
-                    updates.sla_deadline = newDeadline.toISOString();
-                }
-            }
-
-            await supabase.from('ticket_activity_log').insert({
-                ticket_id: ticketId,
-                user_id: user.id,
-                action: sla_paused ? 'sla_paused' : 'sla_resumed',
-                new_value: sla_pause_reason,
             });
         }
 

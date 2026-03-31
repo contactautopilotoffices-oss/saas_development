@@ -80,7 +80,7 @@ export interface ClassificationLogEntry {
  * Main resolver function
  * Orchestrates the entire hybrid classification flow
  */
-export async function resolveClassification(ticketText: string): Promise<ResolvedClassification> {
+export async function resolveClassification(ticketText: string, dbPriority?: string): Promise<ResolvedClassification> {
     // Step 1: Run rule engine
     const ruleResult = classifyTicketEnhanced(ticketText);
 
@@ -120,8 +120,9 @@ export async function resolveClassification(ticketText: string): Promise<Resolve
 
         const llmInput: LLMInput = {
             ticket_text: ticketText,
-            candidate_buckets: ['technical', 'plumbing', 'vendor', 'soft_services'], // Always provide all buckets
+            candidate_buckets: ['technical', 'plumbing', 'vendor', 'soft_services'],
             rule_scores: ruleResult.scores,
+            db_priority: dbPriority,
         };
 
         const llmResponse = await classifyWithGroq(llmInput);

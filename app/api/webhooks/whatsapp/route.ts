@@ -7,6 +7,7 @@ import ffmpeg from 'fluent-ffmpeg';
 import sharp from 'sharp';
 import { supabaseAdmin } from '@/backend/lib/supabase/admin';
 import { resolveClassification, logClassification } from '@/backend/lib/ticketing';
+import { classifyTicketEnhanced } from '@/backend/lib/ticketing/classifyTicket';
 import { WhatsAppService } from '@/backend/services/WhatsAppService';
 
 const BUCKET_NAME = 'ticket_photos';
@@ -281,7 +282,7 @@ async function processIncomingMessage(
         type PropOption = { id: string; name: string; organization_id: string };
         let propertyOptions: PropOption[] = [];
 
-        // org_super_admin gets ALL properties in their organization
+        // Fetch org admin record and properties in parallel
         const { data: orgAdminRecord } = await supabaseAdmin
             .from('organization_memberships')
             .select('organization_id')
@@ -294,7 +295,7 @@ async function processIncomingMessage(
                 .from('properties')
                 .select('id, name, organization_id')
                 .eq('organization_id', orgAdminRecord.organization_id)
-                .limit(12); // poll max is 12
+                .limit(12);
             propertyOptions = (allProps || []).map(p => ({
                 id: p.id, name: p.name, organization_id: p.organization_id,
             }));
@@ -305,7 +306,6 @@ async function processIncomingMessage(
                 .from('property_memberships')
                 .select('property_id, properties(id, name, organization_id)')
                 .eq('user_id', userRow.id)
-                .eq('is_active', true)
                 .limit(12);
             propertyOptions = (memberships || []).map((m: any) => ({
                 id: m.property_id,
@@ -325,7 +325,10 @@ async function processIncomingMessage(
         // ── Multi-property: send a poll to let the user choose ────────────────
         if (!forcedPropertyId && propertyOptions.length > 1) {
             const expiresAt = new Date(Date.now() + SESSION_TTL_MINUTES * 60 * 1000).toISOString();
-            await supabaseAdmin.from('whatsapp_sessions').upsert({
+
+            // MUST await session save before sending poll — prevents race condition
+            // where user taps poll before session is written to DB
+            const { error: sessionError } = await supabaseAdmin.from('whatsapp_sessions').upsert({
                 phone: senderPhone,
                 state: 'awaiting_property',
                 user_id: userRow.id,
@@ -340,11 +343,23 @@ async function processIncomingMessage(
                 expires_at: expiresAt,
             }, { onConflict: 'phone' });
 
-            WhatsAppService.sendPoll(
+            if (sessionError) {
+                console.error('[WA WEBHOOK] Session upsert failed:', sessionError.message);
+                WhatsAppService.send(senderPhone, {
+                    message: `❌ Could not start property selection. Please try again.`,
+                });
+                return;
+            }
+
+            const pollSent = await WhatsAppService.sendPoll(
                 senderPhone,
                 '🏢 Which property is this request for?',
                 propertyOptions.map(p => p.name),
             );
+            if (!pollSent) {
+                console.error('[WA WEBHOOK] sendPoll failed for:', senderPhone);
+                WhatsAppService.send(senderPhone, { message: `❌ Could not send property selection. Please try again.` });
+            }
             return;
         }
 
@@ -365,6 +380,9 @@ async function processIncomingMessage(
 
         if (!selectedProp) {
             console.error('[WA WEBHOOK] Could not resolve property');
+            WhatsAppService.send(senderPhone, {
+                message: `❌ Could not identify your property. Please contact your property manager.`,
+            });
             return;
         }
 
@@ -374,22 +392,44 @@ async function processIncomingMessage(
 
         if (!organizationId) {
             console.error('[WA WEBHOOK] Property has no organization_id:', propertyId);
+            WhatsAppService.send(senderPhone, {
+                message: `❌ Property configuration error. Please contact your administrator.`,
+            });
             return;
         }
 
         // ── Run Groq classification ───────────────────────────────────────────
         const ticketText = messageText || 'Maintenance request via WhatsApp';
-        const resolution = await resolveClassification(ticketText);
-        const { issue_code, skill_group, confidence, decisionSource } = resolution;
-        const isVague = confidence === 'low';
 
-        // Resolve category + skill group DB IDs
+        // Step 1: Quick rule-based pre-pass to get issue_code + DB priority BEFORE Groq runs
+        const preClassification = classifyTicketEnhanced(ticketText);
         let categoryId: string | null = null;
         let skillGroupId: string | null = null;
         let priority = 'medium';
         let slaHours = 24;
 
-        if (issue_code) {
+        if (preClassification.issue_code) {
+            const { data: catData } = await supabaseAdmin
+                .from('issue_categories')
+                .select('id, skill_group_id, priority, sla_hours')
+                .eq('code', preClassification.issue_code)
+                .limit(1)
+                .maybeSingle();
+            if (catData) {
+                categoryId = catData.id;
+                skillGroupId = catData.skill_group_id;
+                priority = catData.priority || 'medium';
+                slaHours = catData.sla_hours || 24;
+            }
+        }
+
+        // Step 2: Full classification with Groq — pass DB priority so Groq uses it as anchor
+        const resolution = await resolveClassification(ticketText, priority);
+        const { issue_code, skill_group, confidence, decisionSource } = resolution;
+        const isVague = confidence === 'low';
+
+        // Step 3: If Groq resolved a different issue_code, re-fetch category/skill group IDs
+        if (issue_code && issue_code !== preClassification.issue_code) {
             const { data: catData } = await supabaseAdmin
                 .from('issue_categories')
                 .select('id, skill_group_id, priority, sla_hours')
@@ -399,8 +439,12 @@ async function processIncomingMessage(
             if (catData) {
                 categoryId = catData.id;
                 skillGroupId = catData.skill_group_id;
-                priority = catData.priority || 'medium';
-                slaHours = catData.sla_hours || 24;
+                // Only update priority if Groq's category has higher priority
+                const priorityRank: Record<string, number> = { low: 0, medium: 1, high: 2, urgent: 3 };
+                if ((priorityRank[catData.priority] ?? 0) > (priorityRank[priority] ?? 0)) {
+                    priority = catData.priority;
+                }
+                slaHours = catData.sla_hours || slaHours;
             }
         }
 
@@ -416,7 +460,13 @@ async function processIncomingMessage(
 
         // ── Create ticket ─────────────────────────────────────────────────────
         const ticketNumber = `TKT-${Date.now()}`;
-        const finalPriority = resolution.priority?.toLowerCase() || priority;
+        // Groq can escalate priority but never downgrade below the DB category default
+        const priorityRank: Record<string, number> = { low: 0, medium: 1, high: 2, urgent: 3 };
+        const groqPriority = resolution.priority?.toLowerCase() || '';
+        const dbPriority = priority; // from issue_categories table
+        const finalPriority = (priorityRank[groqPriority] ?? -1) > (priorityRank[dbPriority] ?? -1)
+            ? groqPriority
+            : dbPriority;
         const titleText = ticketText.slice(0, 100);
 
         const { data: ticket, error: insertError } = await supabaseAdmin
@@ -427,11 +477,14 @@ async function processIncomingMessage(
                 organization_id: organizationId,
                 title: titleText,
                 description: ticketText,
+                category: issue_code,
                 category_id: categoryId,
                 skill_group_id: skillGroupId,
+                department: skill_group,
                 priority: finalPriority,
-                status: 'open',
+                status: 'waitlist',
                 raised_by: userRow.id,
+                raised_by_name: userRow.full_name || null,
                 internal: false,
                 is_vague: isVague,
                 sla_hours: slaHours,
@@ -524,11 +577,9 @@ async function processIncomingMessage(
         // ── Trigger push notifications ────────────────────────────────────────
         try {
             const { NotificationService } = await import('@/backend/services/NotificationService');
-            NotificationService.afterTicketCreated(ticket.id).catch(err => {
-                console.error('[WA WEBHOOK] Notification error:', err);
-            });
+            await NotificationService.afterTicketCreated(ticket.id);
             if (finalPriority === 'critical') {
-                NotificationService.afterCriticalTicketCreated(ticket.id).catch(() => {});
+                await NotificationService.afterCriticalTicketCreated(ticket.id);
             }
         } catch (err) {
             console.error('[WA WEBHOOK] NotificationService import error:', err);
@@ -604,20 +655,20 @@ export async function POST(request: NextRequest) {
             const selectedOption = pollResult.find(r => r.voters && r.voters.length > 0);
             console.log('[WA WEBHOOK] [POLL] selectedOption:', selectedOption?.name ?? 'none');
 
+            // Check deselect FIRST before extracting voter phone
+            if (!selectedOption) {
+                console.log('[WA WEBHOOK] [POLL] No option selected (deselect) — ignoring');
+                return NextResponse.json({ ok: true });
+            }
+
             // Extract the voter's phone from the voters array
-            const rawVoterJid: string = selectedOption?.voters?.[0] || '';
+            const rawVoterJid: string = selectedOption.voters[0] || '';
             const voterPhone = rawVoterJid.replace('@s.whatsapp.net', '').replace(/\D/g, '');
             const last10 = voterPhone.slice(-10);
             console.log('[WA WEBHOOK] [POLL] rawVoterJid:', rawVoterJid, '| voterPhone:', voterPhone, '| last10:', last10);
 
             if (!last10) {
                 console.warn('[WA WEBHOOK] [POLL] Could not extract voter phone — bailing');
-                return NextResponse.json({ ok: true });
-            }
-
-            if (!selectedOption) {
-                // User deselected — ignore
-                console.log('[WA WEBHOOK] [POLL] No option selected (deselect) — ignoring');
                 return NextResponse.json({ ok: true });
             }
 
@@ -634,17 +685,27 @@ export async function POST(request: NextRequest) {
 
             if (!session) {
                 console.warn('[WA WEBHOOK] [POLL] No active session for phone ending in:', last10);
+                // Derive phone from voter JID to send error message
+                const notifyPhone = voterPhone || last10;
+                if (notifyPhone) {
+                    WhatsAppService.send(notifyPhone, {
+                        message: `⏰ Your property selection expired. Please send your request again.`,
+                    });
+                }
                 return NextResponse.json({ ok: true });
             }
 
             // Match selected option name → property ID
             const propertyOptions: Array<{ id: string; name: string }> = session.property_options || [];
             console.log('[WA WEBHOOK] [POLL] Property options in session:', propertyOptions.map(p => p.name));
-            const selectedProperty = propertyOptions.find(p => p.name === selectedOption.name);
+            const selectedProperty = propertyOptions.find(p => p.name.trim().toLowerCase() === selectedOption.name.trim().toLowerCase());
             console.log('[WA WEBHOOK] [POLL] Matched property:', selectedProperty?.id ?? 'NOT MATCHED');
 
             if (!selectedProperty) {
                 console.error('[WA WEBHOOK] [POLL] Poll option not matched to property:', selectedOption.name, '| Available:', propertyOptions.map(p => p.name));
+                WhatsAppService.send(session.phone, {
+                    message: `❌ Property selection failed. Please send your request again.`,
+                });
                 return NextResponse.json({ ok: true });
             }
 

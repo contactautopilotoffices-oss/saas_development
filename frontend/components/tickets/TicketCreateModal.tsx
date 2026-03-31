@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
-import { X, Send, Loader2, CheckCircle, AlertCircle, Camera, Image as ImageIcon, Video, Play, Pause } from 'lucide-react';
+import { X, Send, Loader2, CheckCircle, AlertCircle, Camera, Image as ImageIcon, Video, Play, Pause, AtSign } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { createClient } from '@/frontend/utils/supabase/client';
 import { playTickleSound } from '@/frontend/utils/sounds';
@@ -54,11 +54,36 @@ export default function TicketCreateModal({
     const [availableProperties, setAvailableProperties] = useState<any[]>(properties || []);
     const supabase = createClient();
 
+    // @mention state
+    const textareaRef = useRef<HTMLTextAreaElement>(null);
+    const [propertyUsers, setPropertyUsers] = useState<{ id: string; full_name: string; role?: string }[]>([]);
+    const [mentionQuery, setMentionQuery] = useState('');
+    const [mentionStartIndex, setMentionStartIndex] = useState(-1);
+    const [showMentionDropdown, setShowMentionDropdown] = useState(false);
+    const [taggedUser, setTaggedUser] = useState<{ id: string; full_name: string } | null>(null);
+
     useEffect(() => {
         if (properties && properties.length > 0) {
             setAvailableProperties(properties);
         }
     }, [properties]);
+
+    // Fetch property users for @mention
+    useEffect(() => {
+        const pid = isAdminMode ? selectedPropId : propertyId;
+        if (!pid) return;
+        supabase
+            .from('property_memberships')
+            .select('user:users(id, full_name), role')
+            .eq('property_id', pid)
+            .eq('is_active', true)
+            .then(({ data }) => {
+                const users = (data || [])
+                    .map((m: any) => ({ id: m.user?.id, full_name: m.user?.full_name, role: m.role }))
+                    .filter((u: any) => u.id && u.full_name);
+                setPropertyUsers(users);
+            });
+    }, [propertyId, selectedPropId]);
 
     const handleOrgChange = async (orgId: string) => {
         setSelectedOrgId(orgId);
@@ -79,6 +104,39 @@ export default function TicketCreateModal({
         setMediaFile(media);
         setShowMediaModal(false);
     };
+
+    const handleDescriptionChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+        const val = e.target.value;
+        setDescription(val);
+        const cursor = e.target.selectionStart ?? val.length;
+        const textBeforeCursor = val.slice(0, cursor);
+        const atIndex = textBeforeCursor.lastIndexOf('@');
+        if (atIndex !== -1) {
+            const query = textBeforeCursor.slice(atIndex + 1);
+            if (!query.includes(' ') && !query.includes('\n')) {
+                setMentionQuery(query);
+                setMentionStartIndex(atIndex);
+                setShowMentionDropdown(true);
+                return;
+            }
+        }
+        setShowMentionDropdown(false);
+        setMentionQuery('');
+    };
+
+    const handleMentionSelect = (user: { id: string; full_name: string }) => {
+        const before = description.slice(0, mentionStartIndex);
+        const after = description.slice(mentionStartIndex + 1 + mentionQuery.length);
+        setDescription(`${before}@${user.full_name} ${after}`);
+        setTaggedUser(user);
+        setShowMentionDropdown(false);
+        setMentionQuery('');
+        setTimeout(() => textareaRef.current?.focus(), 0);
+    };
+
+    const filteredMentionUsers = mentionQuery
+        ? propertyUsers.filter(u => u.full_name.toLowerCase().includes(mentionQuery.toLowerCase()))
+        : propertyUsers;
 
     const handleSubmit = async () => {
         if (!description.trim()) {
@@ -107,6 +165,7 @@ export default function TicketCreateModal({
                     propertyId: finalPropId,
                     organizationId: finalOrgId,
                     isInternal,
+                    assignedTo: taggedUser?.id,
                 }),
             });
 
@@ -151,6 +210,9 @@ export default function TicketCreateModal({
         setClassification(null);
         setError(null);
         setSuccess(false);
+        setTaggedUser(null);
+        setShowMentionDropdown(false);
+        setMentionQuery('');
     };
 
     if (!isOpen) return null;
@@ -223,13 +285,71 @@ export default function TicketCreateModal({
 
                                 {/* Description */}
                                 <div>
-                                    <label className="text-sm font-bold text-slate-700 mb-2 block">Description</label>
-                                    <textarea
-                                        value={description}
-                                        onChange={(e) => setDescription(e.target.value)}
-                                        placeholder="Describe the issue in your own words...&#10;Example: Leaking tap in kitchenette, 2nd floor"
-                                        className="w-full h-32 px-4 py-3 bg-slate-50 border border-slate-300 rounded-xl text-slate-900 placeholder-slate-400 resize-none focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary transition-all"
-                                    />
+                                    <label className="text-sm font-bold text-slate-700 mb-2 block">
+                                        Description
+                                        <span className="ml-2 text-xs font-normal text-slate-400">type @ to assign someone</span>
+                                    </label>
+                                    <div className="relative">
+                                        <textarea
+                                            ref={textareaRef}
+                                            value={description}
+                                            onChange={handleDescriptionChange}
+                                            onKeyDown={(e) => {
+                                                if (showMentionDropdown && e.key === 'Escape') {
+                                                    setShowMentionDropdown(false);
+                                                    e.preventDefault();
+                                                }
+                                            }}
+                                            placeholder="Describe the issue in your own words...&#10;Example: Leaking tap in kitchenette, 2nd floor"
+                                            className="w-full h-32 px-4 py-3 bg-slate-50 border border-slate-300 rounded-xl text-slate-900 placeholder-slate-400 resize-none focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary transition-all"
+                                        />
+
+                                        {/* @mention dropdown */}
+                                        {showMentionDropdown && filteredMentionUsers.length > 0 && (
+                                            <div className="absolute left-0 right-0 top-full mt-1 bg-white border border-slate-200 rounded-xl shadow-xl z-50 max-h-48 overflow-y-auto">
+                                                <div className="px-3 py-2 border-b border-slate-100 flex items-center gap-1.5">
+                                                    <AtSign className="w-3 h-3 text-primary" />
+                                                    <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Assign to</span>
+                                                </div>
+                                                {filteredMentionUsers.map(user => (
+                                                    <button
+                                                        key={user.id}
+                                                        type="button"
+                                                        onMouseDown={(e) => { e.preventDefault(); handleMentionSelect(user); }}
+                                                        className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-slate-50 transition-colors text-left"
+                                                    >
+                                                        <div className="w-7 h-7 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
+                                                            <span className="text-[10px] font-bold text-primary">
+                                                                {user.full_name.split(' ').map((n: string) => n[0]).join('').slice(0, 2).toUpperCase()}
+                                                            </span>
+                                                        </div>
+                                                        <div>
+                                                            <p className="text-sm font-semibold text-slate-900">{user.full_name}</p>
+                                                            {user.role && <p className="text-[10px] text-slate-400 capitalize">{user.role.replace(/_/g, ' ')}</p>}
+                                                        </div>
+                                                    </button>
+                                                ))}
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    {/* Tagged user chip */}
+                                    {taggedUser && (
+                                        <div className="mt-2 flex items-center gap-2">
+                                            <span className="text-xs text-slate-500">Assigned to:</span>
+                                            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-primary/10 text-primary rounded-full text-xs font-bold">
+                                                <AtSign className="w-3 h-3" />
+                                                {taggedUser.full_name}
+                                                <button
+                                                    type="button"
+                                                    onClick={() => { setTaggedUser(null); setDescription(description.replace(`@${taggedUser.full_name} `, '').replace(`@${taggedUser.full_name}`, '')); }}
+                                                    className="ml-0.5 hover:text-red-500 transition-colors"
+                                                >
+                                                    <X className="w-3 h-3" />
+                                                </button>
+                                            </span>
+                                        </div>
+                                    )}
                                 </div>
 
                                 {/* Internal toggle — hidden for tenant role */}

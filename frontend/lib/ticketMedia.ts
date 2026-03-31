@@ -33,8 +33,10 @@ export interface UploadResult {
 export async function getTicketPhotos(ticketId: string): Promise<PhotoUrls> {
     const res = await fetch(`/api/tickets/${ticketId}/photos`);
     if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.error || 'Failed to fetch photos');
+        const text = await res.text();
+        let err;
+        try { err = JSON.parse(text); } catch { throw new Error(`HTTP Error ${res.status}`); }
+        throw new Error(err?.error || 'Failed to fetch photos');
     }
     return res.json();
 }
@@ -61,8 +63,10 @@ export async function uploadTicketPhoto(
     });
 
     if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.error || 'Failed to upload photo');
+        const text = await res.text();
+        let err;
+        try { err = JSON.parse(text); } catch { throw new Error(`HTTP Error ${res.status}`); }
+        throw new Error(err?.error || 'Failed to upload photo');
     }
     return res.json();
 }
@@ -80,8 +84,10 @@ export async function deleteTicketPhoto(
     });
 
     if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.error || 'Failed to delete photo');
+        const text = await res.text();
+        let err;
+        try { err = JSON.parse(text); } catch { throw new Error(`HTTP Error ${res.status}`); }
+        throw new Error(err?.error || 'Failed to delete photo');
     }
 }
 
@@ -96,8 +102,10 @@ export async function deleteTicketPhoto(
 export async function getTicketVideos(ticketId: string): Promise<VideoUrls> {
     const res = await fetch(`/api/tickets/${ticketId}/videos`);
     if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.error || 'Failed to fetch videos');
+        const text = await res.text();
+        let err;
+        try { err = JSON.parse(text); } catch { throw new Error(`HTTP Error ${res.status}`); }
+        throw new Error(err?.error || 'Failed to fetch videos');
     }
     return res.json();
 }
@@ -125,8 +133,10 @@ export async function uploadTicketVideo(
     });
 
     if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.error || 'Failed to upload video');
+        const text = await res.text();
+        let err;
+        try { err = JSON.parse(text); } catch { throw new Error(`HTTP Error ${res.status}`); }
+        throw new Error(err?.error || 'Failed to upload video');
     }
     return res.json();
 }
@@ -144,7 +154,9 @@ export async function deleteTicketVideo(
     });
 
     if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.error || 'Failed to delete video');
+        const text = await res.text();
+        let err;
+        try { err = JSON.parse(text); } catch { throw new Error(`HTTP Error ${res.status}`); }
+        throw new Error(err?.error || 'Failed to delete video');
     }
 }

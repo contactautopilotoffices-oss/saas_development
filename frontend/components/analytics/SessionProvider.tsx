@@ -99,6 +99,10 @@ export const SessionProvider: React.FC<SessionProviderProps> = ({ children }) =>
                 body: JSON.stringify({ session_id: currentSessionId }),
             });
 
+            if (!res.ok) {
+                return;
+            }
+
             const data = await res.json();
             if (data.should_restart) {
                 console.log('[SessionProvider] Session expired/invalid, starting new one');

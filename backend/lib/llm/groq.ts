@@ -15,6 +15,7 @@ const LLMInputSchema = z.object({
     ticket_text: z.string(),
     candidate_buckets: z.array(z.string()),
     rule_scores: z.record(z.string(), z.number()),
+    db_priority: z.string().optional(), // baseline priority from issue_categories table
 });
 
 // Output schema (what we expect from Groq)
@@ -59,8 +60,13 @@ Rules:
 1. Reason about context, negation, time, and cause vs symptom.
 2. Identify the PRIMARY category responsible (from the provided list).
 3. Identify a SECONDARY category if relevant (from the provided list), otherwise null.
-4. Assign priority: Low | Medium | High | Urgent.
-5. Flag safety risks explicitly (e.g., "Fire risk", "Safety exposure").
+4. Assign priority using these strict definitions:
+   - Urgent: Immediate threat to life/safety — fire, flood, structural collapse, complete power failure, stuck lift with person inside.
+   - High: Risk of damage, injury, or major service disruption — any leakage/water damage, electrical faults, broken locks, lift malfunction, sewage issues, AC failure in server room.
+   - Medium: Affects comfort or routine operations — AC not cooling, lighting issues, minor plumbing (dripping tap without damage risk), cleaning requests, furniture issues.
+   - Low: Purely cosmetic, no service impact — paint scuff, minor stain, aesthetic complaints.
+   When in doubt between two levels, always choose the HIGHER priority.
+5. Flag safety risks explicitly (e.g., "Fire risk", "Slip hazard", "Water damage risk").
 6. Provide a concise one-line reasoning.
 
 Respond ONLY in valid JSON format matching the requested schema.`;
@@ -70,6 +76,17 @@ Respond ONLY in valid JSON format matching the requested schema.`;
  * Build the user prompt with ticket context
  */
 function buildUserPrompt(input: LLMInput): string {
+    const priorityExamples = `
+Priority Examples (use these as reference):
+- Urgent: "lift stuck with person inside", "fire alarm triggered", "electrical spark near server room", "flooding on floor"
+- High: "urinal tap leakage", "water pipe leaking", "AC not working in server room", "exposed wiring", "broken door lock", "sewage smell", "ceiling water seepage"
+- Medium: "AC not cooling properly", "light flickering", "wifi slow", "chair broken", "tap dripping slightly", "washroom cleaning needed", "dustbin not cleared"
+- Low: "paint scuff on wall", "minor stain on carpet", "desk slightly misaligned", "fingerprints on glass"`;
+
+    const dbPriorityHint = input.db_priority
+        ? `\nBaseline Priority (from category DB): ${input.db_priority} — only assign HIGHER than this if the ticket text clearly warrants it. Never assign lower.`
+        : '';
+
     return `Target Categories: ${JSON.stringify(input.candidate_buckets)}
 
 Ticket Description:
@@ -77,6 +94,7 @@ Ticket Description:
 
 Rule Engine Context:
 Scores: ${JSON.stringify(input.rule_scores)}
+${priorityExamples}${dbPriorityHint}
 
 Analyze the situation and return structured JSON.`;
 }

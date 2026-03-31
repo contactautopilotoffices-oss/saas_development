@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/frontend/utils/supabase/server';
+import { processIntelligentAssignment } from '@/backend/lib/ticketing/assignment';
 
 export async function GET(request: NextRequest) {
     try {
@@ -129,6 +130,26 @@ export async function POST(request: NextRequest) {
                 }
             } else {
                 console.log(`User ${user.id} (Role: ${role}) not eligible for resolver status. Skipping resolver_stats update.`);
+            }
+
+            // Auto-assign waitlisted tickets matching this MST's skills
+            if (isEligibleAsResolver && skills.length > 0) {
+                try {
+                    const { data: waitlistedTickets } = await supabase
+                        .from('tickets')
+                        .select('id, property_id, skill_group_code')
+                        .eq('property_id', propertyId)
+                        .eq('status', 'waitlist')
+                        .or(`skill_group_code.in.(${skills.join(',')}),skill_group_code.is.null`);
+
+                    if (waitlistedTickets && waitlistedTickets.length > 0) {
+                        await processIntelligentAssignment(supabase, waitlistedTickets, propertyId);
+                        console.log(`[Check-in] Auto-assigned ${waitlistedTickets.length} waitlisted tickets for user ${user.id}`);
+                    }
+                } catch (assignErr) {
+                    // Non-fatal — check-in still succeeds even if auto-assignment fails
+                    console.error('[Check-in] Auto-assignment failed:', assignErr);
+                }
             }
 
             return NextResponse.json({ isCheckedIn: true, message: 'Shift started successfully' });

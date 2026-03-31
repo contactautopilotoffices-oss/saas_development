@@ -231,6 +231,7 @@ export async function POST(request: NextRequest) {
             title,
             priority: explicitPriority,
             department: explicitDepartment, // Allow explicit department override
+            assignedTo,
         } = body;
 
         const propId = property_id || propertyId;
@@ -337,7 +338,8 @@ export async function POST(request: NextRequest) {
                     const groqP = resolution.priority?.toLowerCase() || '';
                     return (priorityRank[groqP] ?? -1) > (priorityRank[priority] ?? -1) ? groqP : priority;
                 })(),
-                status: 'open',
+                status: assignedTo ? 'assigned' : 'open',
+                assigned_to: assignedTo || undefined,
                 raised_by: user.id,
                 internal: internalValue,
                 is_vague: isVague,

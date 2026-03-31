@@ -8,6 +8,7 @@ interface CreateUserRequest {
     email: string
     password?: string
     full_name: string
+    phone?: string
     organization_id: string
     role?: string // matches app_role enum: 'master_admin' | 'org_super_admin' | 'property_admin' | 'staff' | 'tenant'
     username?: string
@@ -288,21 +289,25 @@ export async function POST(request: NextRequest) {
             }
         }
 
-        // Send welcome WhatsApp message to new user (best-effort, non-blocking)
-        try {
-            const { data: newUserProfile } = await adminClient
+        // Save phone number if provided
+        const { phone } = body;
+        if (phone) {
+            await adminClient
                 .from('users')
-                .select('phone')
-                .eq('id', userData.user.id)
-                .maybeSingle();
+                .update({ phone })
+                .eq('id', userData.user.id);
+        }
 
-            if (newUserProfile?.phone) {
-                WhatsAppService.send(newUserProfile.phone, {
+        // Send welcome WhatsApp message to new user (best-effort, non-blocking)
+        const welcomePhone = phone || null;
+        if (welcomePhone) {
+            try {
+                WhatsAppService.send(welcomePhone, {
                     message: buildWelcomeMessage(full_name),
                 });
+            } catch {
+                // Never block user creation if WhatsApp fails
             }
-        } catch {
-            // Never block user creation if WhatsApp fails
         }
 
         return NextResponse.json({

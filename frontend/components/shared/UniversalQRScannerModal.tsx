@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState, useCallback } from 'react';
-import { Html5Qrcode, Html5QrcodeSupportedFormats } from 'html5-qrcode';
+import type { Html5Qrcode as Html5QrcodeType, Html5QrcodeSupportedFormats as FormatsType } from 'html5-qrcode';
 import { X, AlertCircle, Loader2, Camera, ImagePlus, Keyboard, CheckCircle2, QrCode } from 'lucide-react';
 
 export type QRScanResult =
@@ -34,23 +34,27 @@ function detectQRType(decoded: string): QRScanResult {
 
 const SCANNER_ID = 'universal-qr-scanner-region';
 
-const FORMATS = [
-    Html5QrcodeSupportedFormats.QR_CODE,
-    Html5QrcodeSupportedFormats.CODE_128,
-    Html5QrcodeSupportedFormats.CODE_39,
-    Html5QrcodeSupportedFormats.EAN_13,
-    Html5QrcodeSupportedFormats.EAN_8,
-    Html5QrcodeSupportedFormats.UPC_A,
-    Html5QrcodeSupportedFormats.ITF,
-    Html5QrcodeSupportedFormats.DATA_MATRIX,
-];
+async function loadHtml5Qrcode() {
+    const { Html5Qrcode, Html5QrcodeSupportedFormats } = await import('html5-qrcode');
+    const formats: FormatsType[] = [
+        Html5QrcodeSupportedFormats.QR_CODE,
+        Html5QrcodeSupportedFormats.CODE_128,
+        Html5QrcodeSupportedFormats.CODE_39,
+        Html5QrcodeSupportedFormats.EAN_13,
+        Html5QrcodeSupportedFormats.EAN_8,
+        Html5QrcodeSupportedFormats.UPC_A,
+        Html5QrcodeSupportedFormats.ITF,
+        Html5QrcodeSupportedFormats.DATA_MATRIX,
+    ];
+    return { Html5Qrcode, formats };
+}
 
 export default function UniversalQRScannerModal({
     onResult,
     onClose,
     title = 'Universal Scanner'
 }: UniversalQRScannerModalProps) {
-    const html5QrCodeRef = useRef<Html5Qrcode | null>(null);
+    const html5QrCodeRef = useRef<Html5QrcodeType | null>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
     const isMounted = useRef(true);
     const isTransitioningRef = useRef(false);
@@ -68,7 +72,7 @@ export default function UniversalQRScannerModal({
         if (html5QrCodeRef.current) {
             try {
                 if (html5QrCodeRef.current.isScanning) await html5QrCodeRef.current.stop();
-                await html5QrCodeRef.current.clear();
+                html5QrCodeRef.current.clear();
             } catch { /* ignore */ }
             html5QrCodeRef.current = null;
             setCameraActive(false);
@@ -96,12 +100,13 @@ export default function UniversalQRScannerModal({
         setTimeout(() => { if (isMounted.current) onResult(result); }, 500);
     }, [stopCamera, onResult]);
 
-    const getScanner = useCallback(() => {
+    const getScanner = useCallback(async () => {
         const container = document.getElementById(SCANNER_ID);
         if (!container) return null;
         if (!html5QrCodeRef.current) {
+            const { Html5Qrcode, formats } = await loadHtml5Qrcode();
             html5QrCodeRef.current = new Html5Qrcode(SCANNER_ID, {
-                formatsToSupport: FORMATS,
+                formatsToSupport: formats,
                 verbose: false,
             });
         }
@@ -111,19 +116,19 @@ export default function UniversalQRScannerModal({
     const startCamera = async (isRetry = false) => {
         if (cameraActive || !isMounted.current) return;
 
-        const checkContainer = async (retries = 15): Promise<boolean> => {
+        const checkContainer = async (retries = 8): Promise<boolean> => {
             if (!isMounted.current) return false;
             const el = document.getElementById(SCANNER_ID);
             if (el && el.clientWidth > 0) return true;
             if (retries <= 0) return false;
-            await new Promise(r => setTimeout(r, 100));
+            await new Promise(r => setTimeout(r, 50));
             return checkContainer(retries - 1);
         };
 
         const ready = await checkContainer();
         if (!ready || !isMounted.current) return;
 
-        const scanner = getScanner();
+        const scanner = await getScanner();
         if (!scanner) return;
 
         try {
@@ -140,7 +145,7 @@ export default function UniversalQRScannerModal({
                     aspectRatio: 1.0,
                     disableFlip: true,
                 },
-                (decoded) => handleDecoded(decoded),
+                (decoded: string) => handleDecoded(decoded),
                 () => {}
             );
             setCameraActive(true);
@@ -168,7 +173,7 @@ export default function UniversalQRScannerModal({
             try {
                 await stopCamera();
                 if (scanMode === 'camera' && isMounted.current) {
-                    await new Promise(r => setTimeout(r, 200));
+                    await new Promise(r => setTimeout(r, 50));
                     if (isMounted.current) await startCamera();
                 }
             } finally {
@@ -248,7 +253,7 @@ export default function UniversalQRScannerModal({
                 });
             };
 
-            const scanner = getScanner();
+            const scanner = await getScanner();
             if (!scanner) throw new Error('Scanner unavailable');
 
             // Try raw file first (preserves original quality), then processed versions

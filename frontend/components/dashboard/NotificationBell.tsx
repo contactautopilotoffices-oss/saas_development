@@ -51,24 +51,36 @@ export default function NotificationBell({ align = 'right' }: NotificationBellPr
     }, [supabase]);
 
     useEffect(() => {
+        let channel: any;
+
         const init = async () => {
             await fetchNotifications();
-        };
-        init();
 
-        // Subscribe to real-time updates
-        const channel = supabase
-            .channel('user-notifications')
-            .on(
-                'postgres_changes',
-                { event: 'INSERT', schema: 'public', table: 'notifications' },
-                (payload) => {
-                    setNotifications((prev) => [payload.new as Notification, ...prev]);
-                    setUnreadCount((count) => count + 1);
-                    // Play notification sound (optional)
-                }
-            )
-            .subscribe();
+            // Get user again for real-time filter
+            const { data: { user } } = await supabase.auth.getUser();
+            if (!user) return;
+
+            // Subscribe to real-time updates for THIS user only
+            channel = supabase
+                .channel(`notif-bell-${user.id}`)
+                .on(
+                    'postgres_changes',
+                    {
+                        event: 'INSERT',
+                        schema: 'public',
+                        table: 'notifications',
+                        filter: `user_id=eq.${user.id}`
+                    },
+                    (payload) => {
+                        console.log('New notification received via bell:', payload.new);
+                        setNotifications((prev) => [payload.new as Notification, ...prev]);
+                        setUnreadCount((count) => count + 1);
+                    }
+                )
+                .subscribe();
+        };
+
+        init();
 
         // Close dropdown when clicking outside
         function handleClickOutside(event: MouseEvent) {
@@ -79,7 +91,7 @@ export default function NotificationBell({ align = 'right' }: NotificationBellPr
         document.addEventListener("mousedown", handleClickOutside);
 
         return () => {
-            supabase.removeChannel(channel);
+            if (channel) supabase.removeChannel(channel);
             document.removeEventListener("mousedown", handleClickOutside);
         };
     }, [fetchNotifications, supabase]);

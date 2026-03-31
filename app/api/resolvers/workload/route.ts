@@ -1,15 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/frontend/utils/supabase/server';
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const isUUID = (v: string | null): v is string => !!v && UUID_RE.test(v);
+
 // GET: Get resolver workload for load balancing
 export async function GET(request: NextRequest) {
     try {
         const supabase = await createClient();
 
         const searchParams = request.nextUrl.searchParams;
-        const propertyId = searchParams.get('propertyId');
-        const organizationId = searchParams.get('organizationId');
-        const skillGroupId = searchParams.get('skillGroupId');
+        const propertyId = isUUID(searchParams.get('propertyId')) ? searchParams.get('propertyId') : null;
+        const organizationId = isUUID(searchParams.get('organizationId')) ? searchParams.get('organizationId') : null;
+        const skillGroupId = isUUID(searchParams.get('skillGroupId')) ? searchParams.get('skillGroupId') : null;
 
         // Base query for resolvers
         let resolverQuery = supabase
@@ -44,7 +47,9 @@ export async function GET(request: NextRequest) {
         const { data: resolvers, error } = await resolverQuery;
 
         if (error) {
-            return NextResponse.json({ error: 'Failed to fetch resolvers' }, { status: 500 });
+            console.error('[resolvers/workload] Supabase query error:', JSON.stringify(error, null, 2));
+            console.error('[resolvers/workload] Query params - propertyId:', propertyId, 'organizationId:', organizationId);
+            return NextResponse.json({ error: 'Failed to fetch resolvers', details: error.message }, { status: 500 });
         }
 
         // Get active ticket counts
@@ -100,7 +105,7 @@ export async function GET(request: NextRequest) {
             total_available: resolversWithScores.length,
         });
     } catch (error) {
-        console.error('Resolver workload error:', error);
-        return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+        console.error('[resolvers/workload] Uncaught error:', error);
+        return NextResponse.json({ error: 'Internal server error', details: String(error) }, { status: 500 });
     }
 }

@@ -15,7 +15,6 @@ interface Ticket {
     priority: string;
     sla_deadline: string | null;
     sla_breached: boolean;
-    sla_paused: boolean;
     confidence_score: number;
     is_vague: boolean;
     category?: { id: string; name: string };
@@ -199,8 +198,7 @@ export default function AdminSPOCDashboard({
         return () => clearInterval(interval);
     }, [fetchData]);
 
-    const getSLAStatus = (deadline: string | null, breached: boolean, paused: boolean) => {
-        if (paused) return { text: 'PAUSED', color: 'text-yellow-400 bg-yellow-500/20', urgent: false };
+    const getSLAStatus = (deadline: string | null, breached: boolean) => {
         if (breached) return { text: 'SLA BREACHED', color: 'text-red-400 bg-red-500/20', urgent: true };
         if (!deadline) return null;
 
@@ -240,22 +238,6 @@ export default function AdminSPOCDashboard({
             setAssignTo('');
         } catch (error) {
             console.error('Error assigning:', error);
-        } finally {
-            setActionLoading(null);
-        }
-    };
-
-    const handlePauseSLA = async (ticketId: string, pause: boolean) => {
-        setActionLoading(`pause-${ticketId}`);
-        try {
-            await fetch(`/api/tickets/${ticketId}/pause-sla`, {
-                method: 'PATCH',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ pause, reason: pause ? 'Paused by admin' : undefined }),
-            });
-            fetchData();
-        } catch (error) {
-            console.error('Error pausing SLA:', error);
         } finally {
             setActionLoading(null);
         }
@@ -305,7 +287,7 @@ export default function AdminSPOCDashboard({
 
     const waitlistTickets = tickets.filter(t => t.status === 'waitlist');
     const slaRiskTickets = tickets.filter(t => {
-        if (!t.sla_deadline || t.sla_paused) return false;
+        if (!t.sla_deadline) return false;
         if (['resolved', 'closed', 'completed', 'pending_validation'].includes(t.status)) return false;
         const diffMs = new Date(t.sla_deadline).getTime() - Date.now();
         return diffMs > 0 && diffMs < 60 * 60 * 1000;
@@ -589,7 +571,7 @@ export default function AdminSPOCDashboard({
                             </div>
                         ) : (
                             tickets.map((ticket) => {
-                                const sla = getSLAStatus(ticket.sla_deadline, ticket.sla_breached, ticket.sla_paused);
+                                const sla = getSLAStatus(ticket.sla_deadline, ticket.sla_breached);
                                 return (
                                     <div
                                         key={ticket.id}
@@ -638,7 +620,7 @@ export default function AdminSPOCDashboard({
                     ) : (
                         <div className="space-y-3">
                             {slaRiskTickets.slice(0, 3).map(ticket => {
-                                const sla = getSLAStatus(ticket.sla_deadline, false, false);
+                                const sla = getSLAStatus(ticket.sla_deadline, false);
                                 return (
                                     <div key={ticket.id} className="flex items-center justify-between bg-white border border-slate-100 rounded-xl p-4 shadow-sm hover:shadow-md transition-shadow">
                                         <div>
@@ -700,13 +682,6 @@ export default function AdminSPOCDashboard({
                     <div className="bg-white border border-slate-100 rounded-[24px] p-5 shadow-sm">
                         <h2 className="text-xs font-black text-slate-400 mb-4 uppercase tracking-widest">Quick Actions</h2>
                         <div className="grid grid-cols-2 gap-3">
-                            <button
-                                onClick={() => selectedTicket && handlePauseSLA(selectedTicket.id, !selectedTicket.sla_paused)}
-                                disabled={!selectedTicket}
-                                className="py-3 bg-cyan-50 text-cyan-600 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-cyan-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                            >
-                                {selectedTicket?.sla_paused ? 'Resume SLA' : 'Pause SLA'}
-                            </button>
                             <button
                                 onClick={() => selectedTicket && handleReclassify(selectedTicket.id)}
                                 disabled={!selectedTicket}

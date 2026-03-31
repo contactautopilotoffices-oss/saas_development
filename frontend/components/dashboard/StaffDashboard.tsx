@@ -29,7 +29,9 @@ import AdminRoomManager from '@/frontend/components/meeting-rooms/AdminRoomManag
 import StockDashboard from '@/frontend/components/stock/StockDashboard';
 import StockMovementModal from '@/frontend/components/stock/StockMovementModal';
 import SOPDashboard from '@/frontend/components/sop/SOPDashboard';
-import UniversalQRScannerModal, { QRScanResult } from '@/frontend/components/shared/UniversalQRScannerModal';
+import dynamic from 'next/dynamic';
+import type { QRScanResult } from '@/frontend/components/shared/UniversalQRScannerModal';
+const UniversalQRScannerModal = dynamic(() => import('@/frontend/components/shared/UniversalQRScannerModal'), { ssr: false });
 
 // Types
 type Tab = 'dashboard' | 'requests' | 'create_request' | 'visitors' | 'rooms' | 'diesel' | 'electricity' | 'stock' | 'checklist' | 'settings' | 'profile' | 'flow-map';
@@ -57,7 +59,6 @@ interface Ticket {
     } | null;
     photo_before_url?: string;
     raised_by?: string;
-    sla_paused?: boolean;
     internal?: boolean;
     property_id?: string;
     creator?: { property_memberships?: { role: string; property_id: string }[] };
@@ -394,39 +395,6 @@ const StaffDashboard = () => {
                     <div className="flex flex-col items-center gap-1.5 mb-3">
                         <img src="/autopilot-logo-new.png" alt="Autopilot Logo" className="h-10 w-auto object-contain" />
                         <p className="text-[9px] text-text-tertiary font-black uppercase tracking-[0.2em]">Staff Portal</p>
-                    </div>
-                </div>
-
-                {/* Search */}
-                <div className="px-3 py-3 relative">
-                    <div className="relative">
-                        <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-text-tertiary" />
-                        <input
-                            type="text"
-                            placeholder="Search features..."
-                            value={searchQuery}
-                            onChange={(e) => setSearchQuery(e.target.value)}
-                            onKeyDown={(e) => {
-                                if (e.key === 'Enter' && searchQuery.length > 2) {
-                                    const match = [
-                                        { label: 'Overview', tab: 'dashboard' },
-                                        { label: 'Requests', tab: 'requests' },
-                                        { label: 'Visitors', tab: 'visitors' },
-                                        { label: 'Meeting Rooms', tab: 'rooms' },
-                                        { label: 'Diesel Logger', tab: 'diesel' },
-                                        { label: 'Electricity Logger', tab: 'electricity' },
-                                        { label: 'Settings', tab: 'settings' },
-                                        { label: 'Profile', tab: 'profile' },
-                                        { label: 'New Request', tab: 'create_request' }
-                                    ].find(m => m.label.toLowerCase().includes(searchQuery.toLowerCase()));
-                                    if (match) {
-                                        handleTabChange(match.tab as Tab);
-                                        setSearchQuery('');
-                                    }
-                                }
-                            }}
-                            className="w-full pl-8 pr-3 py-2 bg-surface-elevated border border-border rounded-lg text-xs text-text-primary placeholder:text-text-tertiary focus:outline-none focus:border-blue-500"
-                        />
                     </div>
                 </div>
 
@@ -1065,7 +1033,6 @@ const DashboardTab = ({ tickets, completedCount, onTicketClick, userId, isLoadin
                                     assignedTo={ticket.assignee?.full_name}
                                     assigneePhotoUrl={(ticket.assignee as any)?.user_photo_url}
                                     photoUrl={ticket.photo_before_url}
-                                    isSlaPaused={ticket.sla_paused}
                                     escalationChain={(() => { const logs = ticket.ticket_escalation_logs; if (!logs || logs.length === 0) return undefined; const sorted = [...logs].sort((a, b) => new Date(a.escalated_at).getTime() - new Date(b.escalated_at).getTime()); const chain: { name: string; avatar?: string | null }[] = []; sorted.forEach((log, i) => { if (i === 0 && log.from_employee?.full_name) chain.push({ name: log.from_employee.full_name, avatar: log.from_employee.user_photo_url }); if (log.to_employee?.full_name) chain.push({ name: log.to_employee.full_name, avatar: log.to_employee.user_photo_url }); }); return chain.length > 0 ? chain : undefined; })()}
                                     raisedByTenant={((ticket.creator as any)?.property_memberships || []).some((m: any) => m.property_id === ticket.property_id && ['tenant', 'super_tenant'].includes((m.role || '').toLowerCase()))}
                                     onClick={() => onTicketClick?.(ticket.id)}
@@ -1198,7 +1165,6 @@ const RequestsTab = ({ activeTickets = [], completedTickets = [], onTicketClick,
                                     assignedTo={ticket.assignee?.full_name}
                                     assigneePhotoUrl={(ticket.assignee as any)?.user_photo_url}
                                     photoUrl={ticket.photo_before_url}
-                                    isSlaPaused={ticket.sla_paused}
                                     escalationChain={(() => { const logs = ticket.ticket_escalation_logs; if (!logs || logs.length === 0) return undefined; const sorted = [...logs].sort((a, b) => new Date(a.escalated_at).getTime() - new Date(b.escalated_at).getTime()); const chain: { name: string; avatar?: string | null }[] = []; sorted.forEach((log, i) => { if (i === 0 && log.from_employee?.full_name) chain.push({ name: log.from_employee.full_name, avatar: log.from_employee.user_photo_url }); if (log.to_employee?.full_name) chain.push({ name: log.to_employee.full_name, avatar: log.to_employee.user_photo_url }); }); return chain.length > 0 ? chain : undefined; })()}
                                     raisedByTenant={((ticket.creator as any)?.property_memberships || []).some((m: any) => m.property_id === ticket.property_id && ['tenant', 'super_tenant'].includes((m.role || '').toLowerCase()))}
                                     onClick={() => onTicketClick?.(ticket.id)}
@@ -1256,7 +1222,6 @@ const TasksTab = ({ tickets = [], onTicketClick, onEditClick }: { tickets: any[]
                                     createdAt={ticket.created_at}
                                     assignedTo="You"
                                     photoUrl={ticket.photo_before_url}
-                                    isSlaPaused={ticket.sla_paused}
                                     raisedByTenant={((ticket.creator as any)?.property_memberships || []).some((m: any) => m.property_id === ticket.property_id && ['tenant', 'super_tenant'].includes((m.role || '').toLowerCase()))}
                                     onClick={() => onTicketClick?.(ticket.id)}
                                     onEdit={onEditClick ? (e) => onEditClick(e, ticket) : undefined}
