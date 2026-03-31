@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import { createClient } from '@/frontend/utils/supabase/client';
 import { motion, AnimatePresence } from 'framer-motion';
+import ExecutiveSummaryPanel from '@/frontend/components/shared/ExecutiveSummaryPanel';
 
 function getCurrentMonth() {
     const now = new Date();
@@ -69,6 +70,14 @@ export default function ImportReportsView({ propertyId, organizationId }: Import
     const [filterStatus, setFilterStatus] = useState<string>('all');
     const [showFilterDropdown, setShowFilterDropdown] = useState(false);
     const [selectedMonth, setSelectedMonth] = useState(getCurrentMonth());
+    const [dateMode, setDateMode] = useState<'month' | 'custom'>('month');
+    const today = new Date().toISOString().split('T')[0];
+    const [customStart, setCustomStart] = useState(() => {
+        const d = new Date(); d.setDate(1);
+        return d.toISOString().split('T')[0];
+    });
+    const [customEnd, setCustomEnd] = useState(today);
+    const [showHistory, setShowHistory] = useState(false);
 
     const supabase = createClient();
 
@@ -348,132 +357,73 @@ export default function ImportReportsView({ propertyId, organizationId }: Import
 
     return (
         <div className="space-y-4">
-            {/* Monthly Requests Report Card */}
-            <div className="bg-white rounded-2xl border border-border shadow-sm p-5">
-                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-                    <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 bg-primary/10 rounded-xl flex items-center justify-center flex-shrink-0">
-                            <BarChart2 className="w-5 h-5 text-primary" />
-                        </div>
-                        <div>
-                            <h3 className="text-sm font-black text-text-primary lowercase">monthly requests report</h3>
-                            <p className="text-[11px] text-text-tertiary font-medium mt-0.5">
-                                view full report of all tickets raised for a selected month
-                            </p>
-                        </div>
-                    </div>
-                    <div className="flex flex-col items-end gap-1.5">
-                        <div className="flex items-center gap-2 flex-wrap">
-                            {/* Month Picker */}
-                            <div className="flex items-center gap-1 bg-muted border border-border rounded-xl px-3 py-2">
-                                <button
-                                    onClick={() => setSelectedMonth(prev => changeMonth(prev, -1))}
-                                    className="p-0.5 hover:bg-border rounded transition-colors"
-                                >
-                                    <ChevronLeft className="w-3.5 h-3.5 text-text-secondary" />
-                                </button>
-                                <input
-                                    type="month"
-                                    value={selectedMonth}
-                                    onChange={(e) => setSelectedMonth(e.target.value)}
-                                    className="text-xs font-bold text-text-primary bg-transparent outline-none w-[120px] text-center"
-                                    max={getCurrentMonth()}
-                                />
-                                <button
-                                    onClick={() => setSelectedMonth(prev => changeMonth(prev, 1))}
-                                    disabled={selectedMonth >= getCurrentMonth()}
-                                    className="p-0.5 hover:bg-border rounded transition-colors disabled:opacity-40"
-                                >
-                                    <ChevronRight className="w-3.5 h-3.5 text-text-secondary" />
-                                </button>
-                            </div>
-                            <button
-                                onClick={() => propertyId && router.push(`/property/${propertyId}/reports/requests?month=${selectedMonth}`)}
-                                disabled={!propertyId}
-                                className="flex items-center gap-2 px-4 py-2 bg-primary text-white rounded-xl text-xs font-black hover:bg-primary/90 transition-colors shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
-                                title={!propertyId ? 'Select a specific property first' : undefined}
-                            >
-                                <Eye className="w-3.5 h-3.5" />
-                                view report
-                            </button>
-                        </div>
-                        {!propertyId && (
-                            <p className="text-[10px] text-text-tertiary font-medium">
-                                select a specific property to view its monthly report
-                            </p>
-                        )}
-                    </div>
-                </div>
+            {/* Top Action Bar */}
+            <div className="flex items-center justify-end">
+                <button
+                    onClick={() => {
+                        if (!propertyId) return;
+                        router.push(`/property/${propertyId}/reports/requests?month=${selectedMonth}`);
+                    }}
+                    disabled={!propertyId}
+                    className="flex items-center gap-2 px-5 py-2.5 bg-[#5a7a8a] text-white rounded-full text-sm font-semibold hover:bg-[#4a6a7a] transition-colors shadow-md disabled:opacity-50"
+                >
+                    <BarChart2 className="w-4 h-4" />
+                    view report
+                </button>
             </div>
 
-            {/* Header */}
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+            {/* Main Executive Summary Body */}
+            {propertyId && propertyId !== 'all' && (
+                <div className="bg-white rounded-2xl border border-border shadow-sm p-1">
+                    <ExecutiveSummaryPanel propertyId={propertyId} idPrefix="main-reports" />
+                </div>
+            )}
+
+            {/* Header / Actions */}
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pt-4 border-t border-border mt-8">
                 <div>
-                    <h2 className="text-2xl font-black text-text-primary lowercase">import reports</h2>
-                    <p className="text-text-tertiary text-sm font-medium mt-1">
-                        view and export reports for all bulk imports
+                    <h2 className="text-xl font-black text-text-primary lowercase">import history & tools</h2>
+                    <p className="text-text-tertiary text-[11px] font-medium mt-0.5">
+                        manage bulk imports and export raw data reports
                     </p>
                 </div>
                 <div className="flex items-center gap-3">
-                    {/* Filter Dropdown */}
-                    <div className="relative">
-                        <button
-                            onClick={() => setShowFilterDropdown(!showFilterDropdown)}
-                            className="flex items-center gap-2 px-4 py-2.5 bg-white border border-border rounded-xl text-sm font-bold text-text-secondary hover:bg-muted transition-colors"
-                        >
-                            <Filter className="w-4 h-4" />
-                            {filterStatus === 'all' ? 'All Status' : filterStatus.charAt(0).toUpperCase() + filterStatus.slice(1)}
-                            <ChevronDown className="w-4 h-4" />
-                        </button>
-                        <AnimatePresence>
-                            {showFilterDropdown && (
-                                <motion.div
-                                    initial={{ opacity: 0, y: -10 }}
-                                    animate={{ opacity: 1, y: 0 }}
-                                    exit={{ opacity: 0, y: -10 }}
-                                    className="absolute right-0 mt-2 w-40 bg-white border border-border rounded-xl shadow-lg z-10 overflow-hidden"
-                                >
-                                    {['all', 'completed', 'processing', 'pending', 'failed'].map(status => (
-                                        <button
-                                            key={status}
-                                            onClick={() => {
-                                                setFilterStatus(status);
-                                                setShowFilterDropdown(false);
-                                            }}
-                                            className={`w-full px-4 py-2.5 text-left text-sm font-medium hover:bg-muted transition-colors ${filterStatus === status ? 'bg-primary/10 text-primary' : 'text-text-secondary'
-                                                }`}
-                                        >
-                                            {status.charAt(0).toUpperCase() + status.slice(1)}
-                                        </button>
-                                    ))}
-                                </motion.div>
-                            )}
-                        </AnimatePresence>
-                    </div>
+                    {/* Bulk Snags Button */}
+                    <button
+                        onClick={() => router.push(`/property/${propertyId}/snags/intake`)}
+                        className="flex items-center gap-2 px-4 py-2 bg-secondary text-white rounded-xl text-xs font-bold hover:bg-secondary/90 transition-colors shadow-sm"
+                    >
+                        <Upload className="w-4 h-4" />
+                        bulk snag import
+                    </button>
+
+                    {/* View Report Button */}
+                    <button
+                        onClick={() => {
+                            if (!propertyId) return;
+                            router.push(`/property/${propertyId}/reports/requests?month=${selectedMonth}`);
+                        }}
+                        disabled={!propertyId}
+                        className="flex items-center gap-2 px-4 py-2 bg-primary text-white rounded-xl text-xs font-bold hover:bg-primary/90 transition-colors shadow-sm disabled:opacity-50"
+                    >
+                        <BarChart2 className="w-4 h-4" />
+                        view report
+                    </button>
 
                     {/* Refresh Button */}
                     <button
                         onClick={fetchImports}
                         disabled={isLoading}
-                        className="p-2.5 bg-white border border-border rounded-xl text-text-secondary hover:bg-muted transition-colors"
+                        className="p-2 bg-white border border-border rounded-xl text-text-secondary hover:bg-muted transition-colors"
                     >
                         <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
-                    </button>
-
-                    {/* Bulk Snags Button */}
-                    <button
-                        onClick={() => router.push(`/property/${propertyId}/snags/intake`)}
-                        className="flex items-center gap-2 px-4 py-2.5 bg-secondary text-white rounded-xl text-sm font-bold hover:bg-secondary/90 transition-colors shadow-sm shadow-secondary/25"
-                    >
-                        <Upload className="w-4 h-4" />
-                        bulk snags
                     </button>
 
                     {/* Export All Button */}
                     <button
                         onClick={handleExportAllReports}
                         disabled={isExporting !== null || imports.length === 0}
-                        className="flex items-center gap-2 px-4 py-2.5 bg-primary text-white rounded-xl text-sm font-bold hover:bg-primary/90 transition-colors disabled:opacity-50"
+                        className="flex items-center gap-2 px-4 py-2 bg-slate-800 text-white rounded-xl text-xs font-bold hover:bg-slate-900 transition-colors disabled:opacity-50"
                     >
                         {isExporting === 'all' ? (
                             <Loader2 className="w-4 h-4 animate-spin" />
@@ -482,8 +432,60 @@ export default function ImportReportsView({ propertyId, organizationId }: Import
                         )}
                         export all
                     </button>
+                    
+                    {/* Toggle History Button */}
+                    <button
+                        onClick={() => setShowHistory(!showHistory)}
+                        className="flex items-center gap-2 px-4 py-2 bg-white border border-border rounded-xl text-xs font-bold text-text-secondary hover:bg-muted transition-colors"
+                    >
+                        {showHistory ? 'Hide History' : 'View Import History'}
+                        <ChevronDown className={`w-4 h-4 transition-transform ${showHistory ? 'rotate-180' : ''}`} />
+                    </button>
                 </div>
             </div>
+
+            {/* Filter Row (Only visible if showHistory is true or if there's an error) */}
+            {(showHistory || error) && (
+                <div className="flex items-center justify-between gap-4">
+                    <div className="flex items-center gap-2">
+                        {/* Filter Dropdown */}
+                        <div className="relative">
+                            <button
+                                onClick={() => setShowFilterDropdown(!showFilterDropdown)}
+                                className="flex items-center gap-2 px-3 py-1.5 bg-white border border-border rounded-lg text-[11px] font-bold text-text-secondary hover:bg-muted transition-colors"
+                            >
+                                <Filter className="w-3.5 h-3.5" />
+                                {filterStatus === 'all' ? 'All Status' : filterStatus.charAt(0).toUpperCase() + filterStatus.slice(1)}
+                                <ChevronDown className="w-3.5 h-3.5" />
+                            </button>
+                            <AnimatePresence>
+                                {showFilterDropdown && (
+                                    <motion.div
+                                        initial={{ opacity: 0, y: -10 }}
+                                        animate={{ opacity: 1, y: 0 }}
+                                        exit={{ opacity: 0, y: -10 }}
+                                        className="absolute left-0 mt-2 w-40 bg-white border border-border rounded-xl shadow-lg z-20 overflow-hidden"
+                                    >
+                                        {['all', 'completed', 'processing', 'pending', 'failed'].map(status => (
+                                            <button
+                                                key={status}
+                                                onClick={() => {
+                                                    setFilterStatus(status);
+                                                    setShowFilterDropdown(false);
+                                                }}
+                                                className={`w-full px-4 py-2 text-left text-xs font-medium hover:bg-muted transition-colors ${filterStatus === status ? 'bg-primary/10 text-primary' : 'text-text-secondary'
+                                                    }`}
+                                            >
+                                                {status.charAt(0).toUpperCase() + status.slice(1)}
+                                            </button>
+                                        ))}
+                                    </motion.div>
+                                )}
+                            </AnimatePresence>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             {/* Error Alert */}
             {error && (
@@ -499,7 +501,7 @@ export default function ImportReportsView({ propertyId, organizationId }: Import
                 </div>
             )}
 
-            {/* Loading State */}
+            {/* Loading / Empty / Table State */}
             {isLoading ? (
                 <div className="flex flex-col items-center justify-center py-20">
                     <Loader2 className="w-10 h-10 text-primary animate-spin mb-4" />
@@ -517,184 +519,125 @@ export default function ImportReportsView({ propertyId, organizationId }: Import
                     </p>
                 </div>
             ) : (
-                /* Imports Table */
-                <div className="bg-white rounded-2xl border border-border shadow-sm overflow-hidden">
-                    <div className="overflow-x-auto">
-                        <table className="w-full">
-                            <thead>
-                                <tr className="bg-slate-50 border-b border-border">
-                                    <th className="px-4 py-4 text-left text-[10px] font-black text-slate-500 uppercase tracking-widest whitespace-nowrap">
-                                        Import Date
-                                    </th>
-                                    <th className="px-4 py-4 text-left text-[10px] font-black text-slate-500 uppercase tracking-widest">
-                                        File Details
-                                    </th>
-                                    <th className="px-4 py-4 text-left text-[10px] font-black text-slate-500 uppercase tracking-widest">
-                                        Imported By
-                                    </th>
-                                    <th className="px-4 py-4 text-center text-[10px] font-black text-slate-500 uppercase tracking-widest">
-                                        Rows
-                                    </th>
-                                    <th className="px-4 py-4 text-center text-[10px] font-black text-slate-500 uppercase tracking-widest">
-                                        Status
-                                    </th>
-                                    <th className="px-4 py-4 text-right text-[10px] font-black text-slate-500 uppercase tracking-widest">
-                                        Actions
-                                    </th>
-                                </tr>
-                            </thead>
-                            <tbody className="divide-y divide-border">
-                                {imports.map((imp, idx) => {
-                                    const StatusIcon = statusStyles[imp.status]?.icon || Clock;
-                                    return (
-                                        <motion.tr
-                                            key={imp.id}
-                                            initial={{ opacity: 0, y: 10 }}
-                                            animate={{ opacity: 1, y: 0 }}
-                                            transition={{ delay: idx * 0.05 }}
-                                            className="hover:bg-slate-50/50 transition-colors"
-                                        >
-                                            <td className="px-4 py-4">
-                                                <div className="flex items-center gap-3">
-                                                    <div className="w-8 h-8 bg-primary/10 rounded-lg flex items-center justify-center flex-shrink-0">
-                                                        <Calendar className="w-4 h-4 text-primary" />
-                                                    </div>
-                                                    <div>
-                                                        <p className="text-xs font-bold text-text-primary whitespace-nowrap">
-                                                            {formatDate(imp.created_at).split(' | ')[0]}
-                                                        </p>
-                                                        <p className="text-[10px] text-text-tertiary whitespace-nowrap">
-                                                            {formatDate(imp.created_at).split(' | ')[1]}
-                                                        </p>
-                                                    </div>
-                                                </div>
-                                            </td>
-                                            <td className="px-4 py-4">
-                                                <div className="flex flex-col max-w-[180px]">
-                                                    <div className="flex items-center gap-2">
-                                                        <FileText className="w-3.5 h-3.5 text-text-tertiary flex-shrink-0" />
-                                                        <span className="text-xs font-bold text-text-primary truncate" title={imp.filename}>
-                                                            {imp.filename}
-                                                        </span>
-                                                    </div>
-                                                    {(!propertyId || propertyId === 'all') && imp.property && (
-                                                        <div className="flex items-center gap-1 mt-1">
-                                                            <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest bg-slate-100 px-1.5 py-0.5 rounded truncate">
-                                                                {imp.property.name}
-                                                            </span>
-                                                        </div>
-                                                    )}
-                                                </div>
-                                            </td>
-                                            <td className="px-4 py-4">
-                                                <div className="flex items-center gap-2">
-                                                    <div className="w-7 h-7 bg-slate-100 rounded-full flex items-center justify-center flex-shrink-0">
-                                                        <User className="w-3.5 h-3.5 text-text-tertiary" />
-                                                    </div>
-                                                    <div className="max-w-[120px]">
-                                                        <p className="text-xs font-bold text-text-primary truncate">
-                                                            {(imp.importer as any)?.full_name || 'System'}
-                                                        </p>
-                                                        <p className="text-[10px] text-text-tertiary truncate">
-                                                            {(imp.importer as any)?.email || ''}
-                                                        </p>
-                                                    </div>
-                                                </div>
-                                            </td>
-                                            <td className="px-4 py-4 text-center">
-                                                <div className="inline-flex flex-col items-center">
-                                                    <span className="text-sm font-black text-text-primary">
-                                                        {imp.valid_rows}
-                                                    </span>
-                                                    <span className="text-[10px] text-text-tertiary font-bold uppercase tracking-tight">
-                                                        Valid
-                                                    </span>
-                                                </div>
-                                            </td>
-                                            <td className="px-4 py-4 text-center">
-                                                <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${statusStyles[imp.status]?.bg} ${statusStyles[imp.status]?.text}`}>
-                                                    <StatusIcon className={`w-3 h-3 ${imp.status === 'processing' ? 'animate-spin' : ''}`} />
-                                                    {imp.status}
-                                                </span>
-                                            </td>
-                                            <td className="px-4 py-4 text-right">
-                                                <div className="flex items-center justify-end gap-1.5">
-                                                    <button
-                                                        onClick={() => router.push(`/property/${imp.property_id}/reports/${imp.id}`)}
-                                                        disabled={imp.status !== 'completed'}
-                                                        className="p-2 bg-primary/10 hover:bg-primary/20 text-primary rounded-lg text-xs transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                                                        title="View Report"
-                                                    >
-                                                        <Eye className="w-4 h-4" />
-                                                    </button>
-                                                    <button
-                                                        onClick={() => handleExportReport(imp.id)}
-                                                        disabled={isExporting !== null || imp.status !== 'completed'}
-                                                        className="p-2 bg-slate-100 hover:bg-slate-200 text-text-primary rounded-lg text-xs transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                                                        title="Export CSV"
-                                                    >
-                                                        {isExporting === imp.id ? (
-                                                            <Loader2 className="w-4 h-4 animate-spin" />
-                                                        ) : (
-                                                            <Download className="w-4 h-4" />
-                                                        )}
-                                                    </button>
-                                                    <button
-                                                        onClick={() => handleDeleteImport(imp.id)}
-                                                        className="p-2 bg-red-50 hover:bg-red-100 text-red-600 rounded-lg text-xs transition-colors"
-                                                        title="Delete Import"
-                                                    >
-                                                        <Trash2 className="w-4 h-4" />
-                                                    </button>
-                                                </div>
-                                            </td>
-                                        </motion.tr>
-                                    );
-                                })}
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-            )
-            }
+                <>
+                    <AnimatePresence>
+                        {showHistory && (
+                            <motion.div
+                                initial={{ opacity: 0, height: 0 }}
+                                animate={{ opacity: 1, height: 'auto' }}
+                                exit={{ opacity: 0, height: 0 }}
+                                className="overflow-hidden"
+                            >
+                                <div className="bg-white rounded-2xl border border-border shadow-sm overflow-hidden mt-4">
+                                    <div className="overflow-x-auto">
+                                        <table className="w-full">
+                                            <thead>
+                                                <tr className="bg-slate-50 border-b border-border">
+                                                    <th className="px-4 py-4 text-left text-[10px] font-black text-slate-500 uppercase tracking-widest whitespace-nowrap">Import Date</th>
+                                                    <th className="px-4 py-4 text-left text-[10px] font-black text-slate-500 uppercase tracking-widest">File Details</th>
+                                                    <th className="px-4 py-4 text-left text-[10px] font-black text-slate-500 uppercase tracking-widest">Imported By</th>
+                                                    <th className="px-4 py-4 text-center text-[10px] font-black text-slate-500 uppercase tracking-widest">Rows</th>
+                                                    <th className="px-4 py-4 text-center text-[10px] font-black text-slate-500 uppercase tracking-widest">Status</th>
+                                                    <th className="px-4 py-4 text-right text-[10px] font-black text-slate-500 uppercase tracking-widest">Actions</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody className="divide-y divide-border">
+                                                {imports.map((imp, idx) => {
+                                                    const StatusIcon = statusStyles[imp.status]?.icon || Clock;
+                                                    return (
+                                                        <motion.tr
+                                                            key={imp.id}
+                                                            initial={{ opacity: 0, y: 10 }}
+                                                            animate={{ opacity: 1, y: 0 }}
+                                                            transition={{ delay: idx * 0.05 }}
+                                                            className="hover:bg-slate-50/50 transition-colors"
+                                                        >
+                                                            <td className="px-4 py-4">
+                                                                <div className="flex items-center gap-3">
+                                                                    <div className="w-8 h-8 bg-primary/10 rounded-lg flex items-center justify-center flex-shrink-0">
+                                                                        <Calendar className="w-4 h-4 text-primary" />
+                                                                    </div>
+                                                                    <div>
+                                                                        <p className="text-xs font-bold text-text-primary whitespace-nowrap">{formatDate(imp.created_at).split(' | ')[0]}</p>
+                                                                        <p className="text-[10px] text-text-tertiary whitespace-nowrap">{formatDate(imp.created_at).split(' | ')[1]}</p>
+                                                                    </div>
+                                                                </div>
+                                                            </td>
+                                                            <td className="px-4 py-4">
+                                                                <div className="flex flex-col max-w-[180px]">
+                                                                    <div className="flex items-center gap-2">
+                                                                        <FileText className="w-3.5 h-3.5 text-text-tertiary flex-shrink-0" />
+                                                                        <span className="text-xs font-bold text-text-primary truncate" title={imp.filename}>{imp.filename}</span>
+                                                                    </div>
+                                                                    {(!propertyId || propertyId === 'all') && imp.property && (
+                                                                        <div className="flex items-center gap-1 mt-1">
+                                                                            <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest bg-slate-100 px-1.5 py-0.5 rounded truncate">{imp.property.name}</span>
+                                                                        </div>
+                                                                    )}
+                                                                </div>
+                                                            </td>
+                                                            <td className="px-4 py-4">
+                                                                <div className="flex items-center gap-2">
+                                                                    <div className="w-7 h-7 bg-slate-100 rounded-full flex items-center justify-center flex-shrink-0">
+                                                                        <User className="w-3.5 h-3.5 text-text-tertiary" />
+                                                                    </div>
+                                                                    <div className="max-w-[120px]">
+                                                                        <p className="text-xs font-bold text-text-primary truncate">{(imp.importer as any)?.full_name || 'System'}</p>
+                                                                        <p className="text-[10px] text-text-tertiary truncate">{(imp.importer as any)?.email || ''}</p>
+                                                                    </div>
+                                                                </div>
+                                                            </td>
+                                                            <td className="px-4 py-4 text-center">
+                                                                <div className="inline-flex flex-col items-center">
+                                                                    <span className="text-sm font-black text-text-primary">{imp.valid_rows}</span>
+                                                                    <span className="text-[10px] text-text-tertiary font-bold uppercase tracking-tight">Valid</span>
+                                                                </div>
+                                                            </td>
+                                                            <td className="px-4 py-4 text-center">
+                                                                <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${statusStyles[imp.status]?.bg} ${statusStyles[imp.status]?.text}`}>
+                                                                    <StatusIcon className={`w-3 h-3 ${imp.status === 'processing' ? 'animate-spin' : ''}`} />
+                                                                    {imp.status}
+                                                                </span>
+                                                            </td>
+                                                            <td className="px-4 py-4 text-right">
+                                                                <div className="flex items-center justify-end gap-1.5">
+                                                                    <button onClick={() => router.push(`/property/${imp.property_id}/reports/${imp.id}`)} disabled={imp.status !== 'completed'} className="p-2 bg-primary/10 hover:bg-primary/20 text-primary rounded-lg text-xs transition-colors disabled:opacity-50 disabled:cursor-not-allowed" title="View Report"><Eye className="w-4 h-4" /></button>
+                                                                    <button onClick={() => handleExportReport(imp.id)} disabled={isExporting !== null || imp.status !== 'completed'} className="p-2 bg-slate-100 hover:bg-slate-200 text-text-primary rounded-lg text-xs transition-colors disabled:opacity-50 disabled:cursor-not-allowed" title="Export CSV">{isExporting === imp.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}</button>
+                                                                    <button onClick={() => handleDeleteImport(imp.id)} className="p-2 bg-red-50 hover:bg-red-100 text-red-600 rounded-lg text-xs transition-colors" title="Delete Import"><Trash2 className="w-4 h-4" /></button>
+                                                                </div>
+                                                            </td>
+                                                        </motion.tr>
+                                                    );
+                                                })}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            </motion.div>
+                        )}
+                    </AnimatePresence>
 
-            {/* Summary Cards */}
-            {
-                !isLoading && imports.length > 0 && (
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                    {/* Summary Cards */}
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-4">
                         <div className="bg-white rounded-xl p-4 border border-border shadow-sm">
-                            <div className="text-[9px] font-black text-slate-500 uppercase tracking-widest mb-1">
-                                Total Imports
-                            </div>
+                            <div className="text-[9px] font-black text-slate-500 uppercase tracking-widest mb-1">Total Imports</div>
                             <div className="text-xl font-black text-text-primary">{imports.length}</div>
                         </div>
                         <div className="bg-white rounded-xl p-4 border border-border shadow-sm">
-                            <div className="text-[9px] font-black text-slate-500 uppercase tracking-widest mb-1">
-                                Snags Loaded
-                            </div>
-                            <div className="text-xl font-black text-text-primary">
-                                {imports.reduce((acc, i) => acc + i.valid_rows, 0)}
-                            </div>
+                            <div className="text-[9px] font-black text-slate-500 uppercase tracking-widest mb-1">Snags Loaded</div>
+                            <div className="text-xl font-black text-text-primary">{imports.reduce((acc, i) => acc + i.valid_rows, 0)}</div>
                         </div>
                         <div className="bg-white rounded-xl p-4 border border-border shadow-sm">
-                            <div className="text-[9px] font-black text-emerald-600 uppercase tracking-widest mb-1">
-                                Successful
-                            </div>
-                            <div className="text-xl font-black text-emerald-600">
-                                {imports.filter(i => i.status === 'completed').length}
-                            </div>
+                            <div className="text-[9px] font-black text-emerald-600 uppercase tracking-widest mb-1">Successful</div>
+                            <div className="text-xl font-black text-emerald-600">{imports.filter(i => i.status === 'completed').length}</div>
                         </div>
                         <div className="bg-white rounded-xl p-4 border border-border shadow-sm">
-                            <div className="text-[9px] font-black text-red-500 uppercase tracking-widest mb-1">
-                                Failed
-                            </div>
-                            <div className="text-xl font-black text-red-500">
-                                {imports.filter(i => i.status === 'failed').length}
-                            </div>
+                            <div className="text-[9px] font-black text-red-500 uppercase tracking-widest mb-1">Failed</div>
+                            <div className="text-xl font-black text-red-500">{imports.filter(i => i.status === 'failed').length}</div>
                         </div>
                     </div>
-                )
-            }
-        </div >
+                </>
+            )}
+        </div>
     );
 }

@@ -5,7 +5,7 @@ import {
     LayoutDashboard, Users, Ticket, Settings, UserCircle, UsersRound,
     Search, Plus, Filter, LogOut, ChevronRight, MapPin, Building2,
     Calendar, CheckCircle2, AlertCircle, Clock, Coffee, IndianRupee, FileDown, Fuel, Store, Activity, Upload, FileBarChart, Menu, X, Zap, RefreshCw,
-    Package, ClipboardCheck, Scan, ChevronDown, Check, GitBranch
+    Package, ClipboardCheck, Scan, ChevronDown, Check, GitBranch, CalendarDays
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { createClient } from '@/frontend/utils/supabase/client';
@@ -36,10 +36,11 @@ import StockDashboard from '@/frontend/components/stock/StockDashboard';
 import StockMovementModal from '@/frontend/components/stock/StockMovementModal';
 import SOPDashboard from '@/frontend/components/sop/SOPDashboard';
 import EscalationHierarchyBuilder from '@/frontend/components/escalation/EscalationHierarchyBuilder';
+import PPMModule from '@/frontend/components/ppm/PPMModule';
 import UniversalQRScannerModal, { QRScanResult } from '@/frontend/components/shared/UniversalQRScannerModal';
 
 // Types
-type Tab = 'overview' | 'requests' | 'reports' | 'users' | 'visitors' | 'rooms' | 'diesel' | 'diesel_analytics' | 'electricity' | 'electricity_analytics' | 'cafeteria' | 'settings' | 'profile' | 'units' | 'vendor_revenue' | 'stock' | 'checklist' | 'escalation';
+type Tab = 'overview' | 'requests' | 'reports' | 'users' | 'visitors' | 'rooms' | 'diesel' | 'diesel_analytics' | 'electricity' | 'electricity_analytics' | 'cafeteria' | 'settings' | 'profile' | 'units' | 'vendor_revenue' | 'stock' | 'checklist' | 'escalation' | 'ppm';
 
 interface Property {
     id: string;
@@ -440,6 +441,16 @@ const PropertyAdminDashboard = () => {
                                 Checklists
                             </button>
                             <button
+                                onClick={() => handleTabChange('ppm')}
+                                className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 font-bold text-sm ${activeTab === 'ppm'
+                                    ? 'bg-primary text-text-inverse shadow-sm'
+                                    : 'text-text-secondary hover:bg-muted hover:text-text-primary'
+                                    }`}
+                            >
+                                <CalendarDays className="w-4 h-4" />
+                                PPM Calendar
+                            </button>
+                            <button
                                 onClick={() => handleTabChange('escalation')}
                                 className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 font-bold text-sm ${activeTab === 'escalation'
                                     ? 'bg-primary text-text-inverse shadow-sm'
@@ -687,6 +698,12 @@ const PropertyAdminDashboard = () => {
                         {activeTab === 'electricity_analytics' && property && <ElectricityAnalyticsDashboard propertyId={property.id} />}
                         {activeTab === 'stock' && property && <StockDashboard propertyId={property.id} initialItemId={searchParams.get('scanItem') ?? undefined} />}
                         {activeTab === 'checklist' && property && <SOPDashboard propertyId={property.id} />}
+                        {activeTab === 'ppm' && property && (
+                            <PPMModule
+                                organizationId={property.organization_id}
+                                propertyId={property.id}
+                            />
+                        )}
                         {activeTab === 'escalation' && property && (
                             <EscalationHierarchyBuilder
                                 organizationId={property.organization_id}
@@ -906,7 +923,8 @@ const OverviewTab = memo(function OverviewTab({
     }, []);
 
     // Stats State initialized from cache if available
-    const [ticketStats, setTicketStats] = useState(initialCached?.ticketStats || { total: 0, open: 0, waitlist: 0, in_progress: 0, resolved: 0, sla_breached: 0, avg_resolution_hours: 0 });
+    const [ticketStats, setTicketStats] = useState(initialCached?.ticketStats || { total: 0, open: 0, waitlist: 0, in_progress: 0, resolved: 0, sla_breached: 0, avg_resolution_hours: 0, pending_validation: 0, urgent_open: 0 });
+    const [validationEnabled, setValidationEnabled] = useState<boolean>(initialCached?.validationEnabled ?? false);
     const [electricityStats, setElectricityStats] = useState(initialCached?.electricityStats || { total_units_month: 0, total_units_today: 0 });
     const [vmsStats, setVmsStats] = useState(initialCached?.vmsStats || { total_visitors_today: 0, checked_in: 0, checked_out: 0 });
     const [vendorStats, setVendorStats] = useState(initialCached?.vendorStats || { total_revenue: 0, total_commission: 0, total_vendors: 0 });
@@ -952,8 +970,10 @@ const OverviewTab = memo(function OverviewTab({
                 let openQuery = supabase.from('tickets').select('id', { count: 'exact', head: true }).eq('property_id', propertyId).in('status', ['open', 'waitlist', 'blocked', 'client_raised']);
                 let waitlistQuery = supabase.from('tickets').select('id', { count: 'exact', head: true }).eq('property_id', propertyId).in('status', ['waitlist']);
                 let inProgressQuery = supabase.from('tickets').select('id', { count: 'exact', head: true }).eq('property_id', propertyId).in('status', ['assigned', 'in_progress', 'paused', 'work_started']);
-                let resolvedQuery = supabase.from('tickets').select('id', { count: 'exact', head: true }).eq('property_id', propertyId).in('status', ['resolved', 'closed', 'satisfied']);
+                let resolvedQuery = supabase.from('tickets').select('id', { count: 'exact', head: true }).eq('property_id', propertyId).in('status', ['resolved', 'closed', 'satisfied', 'pending_validation']);
                 let totalQuery = supabase.from('tickets').select('id', { count: 'exact', head: true }).eq('property_id', propertyId);
+                let pendingValQuery = supabase.from('tickets').select('id', { count: 'exact', head: true }).eq('property_id', propertyId).eq('status', 'pending_validation');
+                let urgentOpenQuery = supabase.from('tickets').select('id', { count: 'exact', head: true }).eq('property_id', propertyId).in('priority', ['urgent', 'high', 'critical']).not('status', 'in', '("resolved","closed","satisfied")');
 
                 if (timePeriod === 'today') {
                     openQuery = openQuery.gte('created_at', todayForTickets);
@@ -961,21 +981,28 @@ const OverviewTab = memo(function OverviewTab({
                     inProgressQuery = inProgressQuery.gte('created_at', todayForTickets);
                     resolvedQuery = resolvedQuery.gte('created_at', todayForTickets);
                     totalQuery = totalQuery.gte('created_at', todayForTickets);
+                    pendingValQuery = pendingValQuery.gte('created_at', todayForTickets);
+                    urgentOpenQuery = urgentOpenQuery.gte('created_at', todayForTickets);
                 } else if (timePeriod === 'month') {
                     openQuery = openQuery.gte('created_at', monthStart);
                     waitlistQuery = waitlistQuery.gte('created_at', monthStart);
                     inProgressQuery = inProgressQuery.gte('created_at', monthStart);
                     resolvedQuery = resolvedQuery.gte('created_at', monthStart);
                     totalQuery = totalQuery.gte('created_at', monthStart);
+                    pendingValQuery = pendingValQuery.gte('created_at', monthStart);
+                    urgentOpenQuery = urgentOpenQuery.gte('created_at', monthStart);
                 }
 
-                const [openRes, waitlistRes, inProgressRes, resolvedRes, totalRes, recentsRes] = await Promise.all([
+                const [openRes, waitlistRes, inProgressRes, resolvedRes, totalRes, recentsRes, pendingValRes, urgentOpenRes, validationFeatureRes] = await Promise.all([
                     openQuery,
                     waitlistQuery,
                     inProgressQuery,
                     resolvedQuery,
                     totalQuery,
-                    supabase.from('tickets').select('id, title, status, created_at, sla_paused').eq('property_id', propertyId).order('created_at', { ascending: false }).limit(5),
+                    supabase.from('tickets').select('id, title, status, created_at').eq('property_id', propertyId).order('created_at', { ascending: false }).limit(5),
+                    pendingValQuery,
+                    urgentOpenQuery,
+                    supabase.from('property_features').select('is_enabled').eq('property_id', propertyId).eq('feature_key', 'ticket_validation').maybeSingle(),
                 ]);
 
                 // --- Electricity, VMS, Vendors (all in parallel via APIs) ---
@@ -1014,6 +1041,9 @@ const OverviewTab = memo(function OverviewTab({
                 const totalRev = vendorData?.total_revenue ?? 0;
                 const totalComm = vendorData?.total_commission ?? 0;
 
+                const isValidationEnabled = validationFeatureRes.data?.is_enabled ?? false;
+                setValidationEnabled(isValidationEnabled);
+
                 const result = {
                     ticketStats: {
                         total: totalRes.count || 0,
@@ -1022,8 +1052,11 @@ const OverviewTab = memo(function OverviewTab({
                         in_progress: inProgressRes.count || 0,
                         resolved: resolvedRes.count || 0,
                         sla_breached: 0,
-                        avg_resolution_hours: 0
+                        avg_resolution_hours: 0,
+                        pending_validation: pendingValRes.count || 0,
+                        urgent_open: urgentOpenRes.count || 0,
                     },
+                    validationEnabled: isValidationEnabled,
                     timePeriod: timePeriod,
                     recentTickets: recentsRes.data || [],
                     electricityStats: { total_units_month: Math.round(monthUnits), total_units_today: Math.round(todayUnits) },
@@ -1049,7 +1082,9 @@ const OverviewTab = memo(function OverviewTab({
         if (propertyId) fetchPropertyData(true);
     }, [propertyId, statsVersion, timePeriod, supabase, getCachedData, setCachedData]);
 
+    // resolved includes pending_validation (staff already closed their side)
     const completionRate = ticketStats.total > 0 ? Math.round((ticketStats.resolved / ticketStats.total) * 100 * 10) / 10 : 0;
+    const trulyClosedCount = ticketStats.resolved - ticketStats.pending_validation;
 
     if (isLoading && ticketStats.total === 0) return (
         <div className="p-8 space-y-6">
@@ -1175,61 +1210,134 @@ const OverviewTab = memo(function OverviewTab({
                 </div>
 
                 {/* KPI Cards Row */}
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-5">
-                    <div
-                        onClick={() => onTabChange('requests', 'open,assigned,in_progress,blocked')}
-                        className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm cursor-pointer hover:border-primary/50 transition-all group"
+                <div className={`grid grid-cols-1 sm:grid-cols-2 gap-4 mb-5 ${validationEnabled ? 'xl:grid-cols-4' : 'xl:grid-cols-3'}`}>
+
+                    {/* Card 1 — Total Tickets */}
+                    <motion.div
+                        whileHover={{ y: -4, transition: { duration: 0.2 } }}
+                        onClick={() => onTabChange('requests', 'all')}
+                        className="bg-white rounded-2xl p-4 border border-slate-100 shadow-sm hover:shadow-md cursor-pointer hover:border-slate-300 transition-all group relative overflow-hidden"
                     >
-                        <div className="flex justify-between items-start mb-1">
-                            <div className="text-slate-400 text-[10px] font-black uppercase tracking-widest group-hover:text-primary transition-colors">
-                                Tickets {timePeriod === 'today' ? '(Today)' : timePeriod === 'month' ? '(This Month)' : '(All Time)'}
+                        <div className="flex items-center justify-between mb-2">
+                            <span className="text-[10px] font-black uppercase tracking-widest text-slate-400 group-hover:text-slate-600 transition-colors">
+                                Total Tickets {timePeriod === 'today' ? '(Today)' : timePeriod === 'month' ? '(This Month)' : '(All Time)'}
+                            </span>
+                            <div className="w-7 h-7 rounded-xl bg-slate-100 flex items-center justify-center">
+                                <Ticket className="w-3.5 h-3.5 text-slate-500" />
                             </div>
                         </div>
-                        <div className="flex items-baseline gap-2">
+                        <div className="flex items-baseline gap-2 mb-2">
+                            <span className="text-4xl font-black text-slate-900">{ticketStats.total}</span>
+                            <span className="text-xs text-slate-400 font-bold">{completionRate}% resolved</span>
+                        </div>
+                        <div className="w-full h-1.5 bg-slate-100 rounded-full mb-2 overflow-hidden">
+                            <div className="h-full bg-emerald-500 rounded-full transition-all duration-700" style={{ width: `${Math.min(completionRate, 100)}%` }} />
+                        </div>
+                        <div className="flex items-center justify-between text-[10px] font-bold text-slate-400">
+                            <span>{ticketStats.open + ticketStats.in_progress} active</span>
+                            <span>{ticketStats.avg_resolution_hours > 0 ? `Avg ${ticketStats.avg_resolution_hours}h` : 'No data'}</span>
+                        </div>
+                    </motion.div>
+
+                    {/* Card 2 — Open & Active */}
+                    <motion.div
+                        whileHover={{ y: -4, transition: { duration: 0.2 } }}
+                        onClick={() => onTabChange('requests', 'open,assigned,in_progress,blocked')}
+                        className="bg-white rounded-2xl p-4 border border-slate-100 shadow-sm hover:shadow-md cursor-pointer hover:border-blue-200 transition-all group relative overflow-hidden"
+                    >
+                        <div className="flex items-center justify-between mb-2">
+                            <span className="text-[10px] font-black uppercase tracking-widest text-slate-400 group-hover:text-blue-500 transition-colors">Open & Active</span>
+                            <div className={`w-7 h-7 rounded-xl flex items-center justify-center ${ticketStats.sla_breached > 0 ? 'bg-rose-50' : 'bg-blue-50'}`}>
+                                <AlertCircle className={`w-3.5 h-3.5 ${ticketStats.sla_breached > 0 ? 'text-rose-500' : 'text-blue-500'}`} />
+                            </div>
+                        </div>
+                        <div className="flex items-baseline gap-2 mb-2">
                             <span className="text-4xl font-black text-slate-900">{ticketStats.open + ticketStats.in_progress}</span>
                             {ticketStats.sla_breached > 0 && (
-                                <span className="text-[10px] text-rose-500 font-bold uppercase">{ticketStats.sla_breached} SLA breached</span>
+                                <span className="text-[10px] text-rose-500 font-black uppercase bg-rose-50 px-1.5 py-0.5 rounded-md">{ticketStats.sla_breached} SLA</span>
                             )}
                         </div>
-                        <div className="flex items-center gap-3 mt-1.5 pt-1.5 border-t border-slate-100">
-                            <span className="text-[10px] font-bold text-slate-500">
-                                <span className="inline-block w-1.5 h-1.5 rounded-full bg-blue-400 mr-1"></span>
+                        <div className="flex flex-wrap gap-2">
+                            <span className="flex items-center gap-1 text-[10px] font-bold text-slate-500">
+                                <span className="w-1.5 h-1.5 rounded-full bg-blue-400 inline-block" />
                                 {ticketStats.open - ticketStats.waitlist} Open
                             </span>
-                            <span className="text-[10px] font-bold text-slate-500">
-                                <span className="inline-block w-1.5 h-1.5 rounded-full bg-amber-400 mr-1"></span>
+                            <span className="flex items-center gap-1 text-[10px] font-bold text-slate-500">
+                                <span className="w-1.5 h-1.5 rounded-full bg-amber-400 inline-block" />
                                 {ticketStats.waitlist} Waitlist
                             </span>
-                            <span className="text-[10px] font-bold text-slate-500">
-                                <span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-400 mr-1"></span>
+                            <span className="flex items-center gap-1 text-[10px] font-bold text-slate-500">
+                                <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 inline-block" />
                                 {ticketStats.in_progress} In Progress
                             </span>
+                            {ticketStats.urgent_open > 0 && (
+                                <span className="flex items-center gap-1 text-[10px] font-bold text-rose-500">
+                                    <span className="w-1.5 h-1.5 rounded-full bg-rose-400 inline-block" />
+                                    {ticketStats.urgent_open} High/Urgent
+                                </span>
+                            )}
                         </div>
-                    </div>
-                    <div
+                    </motion.div>
+
+                    {/* Card 3 — Resolved & Closed */}
+                    <motion.div
+                        whileHover={{ y: -4, transition: { duration: 0.2 } }}
                         onClick={() => onTabChange('requests', 'resolved,closed')}
-                        className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm cursor-pointer hover:border-emerald-500/50 transition-all group"
+                        className="bg-white rounded-2xl p-4 border border-slate-100 shadow-sm hover:shadow-md cursor-pointer hover:border-emerald-200 transition-all group relative overflow-hidden"
                     >
-                        <div className="text-slate-400 text-[10px] font-black uppercase tracking-widest mb-1 group-hover:text-emerald-500 transition-colors">
-                            Resolved {timePeriod === 'today' ? '(Today)' : timePeriod === 'month' ? '(This Month)' : '(All Time)'}
+                        <div className="flex items-center justify-between mb-2">
+                            <span className="text-[10px] font-black uppercase tracking-widest text-slate-400 group-hover:text-emerald-500 transition-colors">Resolved & Closed</span>
+                            <div className="w-7 h-7 rounded-xl bg-emerald-50 flex items-center justify-center">
+                                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
+                            </div>
                         </div>
-                        <div className="flex items-baseline gap-2">
+                        <div className="flex items-baseline gap-2 mb-2">
                             <span className="text-4xl font-black text-slate-900">{ticketStats.resolved}</span>
-                            <span className="text-[10px] text-slate-400 font-bold uppercase">Avg {ticketStats.avg_resolution_hours}h resolution</span>
+                            <span className="text-xs text-emerald-500 font-bold">{completionRate}%</span>
                         </div>
-                    </div>
-                    <div
-                        onClick={() => onTabChange('requests', 'all')}
-                        className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm cursor-pointer hover:border-blue-500/50 transition-all group"
-                    >
-                        <div className="text-slate-400 text-[10px] font-black uppercase tracking-widest mb-1 group-hover:text-blue-500 transition-colors">
-                            Completion Rate {timePeriod === 'today' ? '(Today)' : timePeriod === 'month' ? '(This Month)' : '(All Time)'}
+                        <div className="w-full h-1.5 bg-slate-100 rounded-full mb-2 overflow-hidden">
+                            <div className="h-full bg-emerald-500 rounded-full transition-all duration-700" style={{ width: `${Math.min(completionRate, 100)}%` }} />
                         </div>
-                        <div className="flex items-baseline gap-2">
-                            <span className="text-4xl font-black text-slate-900">{completionRate}%</span>
-                            <span className="text-[10px] text-slate-400 font-bold uppercase">{ticketStats.resolved} of {ticketStats.total} closed</span>
+                        <div className="flex items-center justify-between text-[10px] font-bold text-slate-400">
+                            <span>
+                                <span className="text-emerald-600">{trulyClosedCount} confirmed</span>
+                                {ticketStats.pending_validation > 0 && <span className="text-amber-500"> · {ticketStats.pending_validation} awaiting</span>}
+                            </span>
+                            <span>{ticketStats.avg_resolution_hours > 0 ? `Avg ${ticketStats.avg_resolution_hours}h` : ''}</span>
                         </div>
-                    </div>
+                    </motion.div>
+
+                    {/* Card 4 — Pending Validation (only if validation is enabled) */}
+                    {validationEnabled && (
+                        <motion.div
+                            whileHover={{ y: -4, transition: { duration: 0.2 } }}
+                            onClick={() => onTabChange('requests', 'pending_validation')}
+                            className={`bg-white rounded-2xl p-4 border shadow-sm hover:shadow-md cursor-pointer transition-all group relative overflow-hidden ${ticketStats.pending_validation > 0 ? 'border-amber-200 hover:border-amber-300' : 'border-slate-100 hover:border-slate-200'}`}
+                        >
+                            <div className="flex items-center justify-between mb-2">
+                                <span className="text-[10px] font-black uppercase tracking-widest text-slate-400 group-hover:text-amber-500 transition-colors">Pending Validation</span>
+                                <div className={`w-7 h-7 rounded-xl flex items-center justify-center ${ticketStats.pending_validation > 0 ? 'bg-amber-50' : 'bg-emerald-50'}`}>
+                                    <Clock className={`w-3.5 h-3.5 ${ticketStats.pending_validation > 0 ? 'text-amber-500' : 'text-emerald-500'}`} />
+                                </div>
+                            </div>
+                            <div className="flex items-baseline gap-2 mb-2">
+                                <span className={`text-4xl font-black ${ticketStats.pending_validation > 0 ? 'text-amber-600' : 'text-slate-900'}`}>
+                                    {ticketStats.pending_validation}
+                                </span>
+                                {ticketStats.pending_validation === 0 ? (
+                                    <span className="text-[10px] text-emerald-500 font-black">All clear ✓</span>
+                                ) : (
+                                    <span className="text-[10px] text-amber-500 font-black bg-amber-50 px-1.5 py-0.5 rounded-md">Needs action</span>
+                                )}
+                            </div>
+                            <div className="text-[10px] font-bold text-slate-400 leading-relaxed">
+                                {ticketStats.pending_validation > 0
+                                    ? <span className="text-amber-600">Awaiting tenant sign-off</span>
+                                    : <span className="text-emerald-600">All resolved tickets confirmed</span>
+                                }
+                            </div>
+                        </motion.div>
+                    )}
                 </div>
             </div>
 
@@ -1331,9 +1439,6 @@ const OverviewTab = memo(function OverviewTab({
                                             <div className="font-bold text-slate-900 text-sm truncate max-w-[200px]">{t.title}</div>
                                             <div className="flex items-center gap-2">
                                                 <div className="text-xs text-slate-500 capitalize">{t.status?.replace('_', ' ')}</div>
-                                                {t.sla_paused && (
-                                                    <span className="text-[8px] font-black text-amber-600 uppercase tracking-tighter bg-amber-50 px-1 rounded">SLA Paused</span>
-                                                )}
                                             </div>
                                         </div>
                                         <div className="text-right"><div className="text-xs text-slate-400">{new Date(t.created_at).toLocaleDateString()}</div></div>

@@ -1,10 +1,9 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import {
-    AlertCircle, MessageSquare, User, Building2, Clock, CheckCircle2,
-    XCircle, RefreshCw, Filter, Send, ChevronRight, Camera, Plus, Pencil, X, Loader2, Activity, Search
+    CheckCircle2, Filter, Plus, X, Loader2, Activity, Search, Calendar, User
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { createClient } from '@/frontend/utils/supabase/client';
@@ -34,7 +33,6 @@ interface Ticket {
     ticket_comments: { count: number }[];
     photo_before_url?: string;
     photo_after_url?: string;
-    sla_paused?: boolean;
     sla_deadline?: string | null;
     internal?: boolean;
     ticket_escalation_logs?: { from_level: number; to_level: number | null; escalated_at: string; from_employee?: { full_name: string; user_photo_url?: string | null } | null; to_employee?: { full_name: string; user_photo_url?: string | null } | null }[];
@@ -61,11 +59,25 @@ const TicketsView: React.FC<TicketsViewProps> = ({ propertyId, canDelete, onNewR
     const { membership } = useAuth();
 
     const [statusFilter, setStatusFilter] = useState<string>(initialStatusFilter);
+    const [categoryFilter, setCategoryFilter] = useState<string>('all');
     const [searchQuery, setSearchQuery] = useState('');
+    const [sortBy, setSortBy] = useState<'newest' | 'oldest' | 'priority_high' | 'priority_low'>('newest');
+    const [dateFrom, setDateFrom] = useState('');
+    const [dateTo, setDateTo] = useState('');
+    const [raisedByFilter, setRaisedByFilter] = useState('all');
+    const [resolvedByFilter, setResolvedByFilter] = useState('all');
+    const [assignedToFilter, setAssignedToFilter] = useState('all');
+    const [allResolvers, setAllResolvers] = useState<{ name: string; count: number }[]>([]);
+    const [allAssignees, setAllAssignees] = useState<{ name: string; count: number }[]>([]);
     const cacheKey = `tickets-${propertyId}-${statusFilter}`; // Use statusFilter here for dynamic key
 
     const [tickets, setTickets] = useState<Ticket[]>(() => getCachedData(`tickets-${propertyId}-${initialStatusFilter}`) || []);
     const [isLoading, setIsLoading] = useState(!getCachedData(`tickets-${propertyId}-${initialStatusFilter}`));
+    const [isLoadingMore, setIsLoadingMore] = useState(false);
+    const [hasMore, setHasMore] = useState(false);
+    const [totalCount, setTotalCount] = useState<number | null>(null);
+    const [allCreators, setAllCreators] = useState<{ name: string; count: number }[]>([]);
+
     const [currentUserId, setCurrentUserId] = useState<string | null>(null);
 
     // Edit Modal State
@@ -93,66 +105,121 @@ const TicketsView: React.FC<TicketsViewProps> = ({ propertyId, canDelete, onNewR
 
     useEffect(() => {
         fetchTickets();
+        fetchAllCreators();
     }, [statusFilter, propertyId]);
+
+    const buildUrl = (extra = '') => {
+        let url: string;
+        if (statusFilter === 'tenant_raised') {
+            url = '/api/tickets?raisedByRole=tenant';
+        } else if (statusFilter === 'internal') {
+            url = '/api/tickets?isInternal=true';
+        } else if (statusFilter === 'all' || statusFilter === 'sla_breached' || statusFilter === 'pending_validation') {
+            url = '/api/tickets';
+        } else {
+            url = `/api/tickets?status=${statusFilter}`;
+        }
+        if (propertyId) url += `${url.includes('?') ? '&' : '?'}propertyId=${propertyId}`;
+        if (extra) url += `${url.includes('?') ? '&' : '?'}${extra}`;
+        return url;
+    };
+
+    const applyClientFilters = (fetchedTickets: Ticket[]) => {
+        if (statusFilter === 'pending_validation') fetchedTickets = fetchedTickets.filter(t => t.status === 'pending_validation');
+        if (statusFilter === 'sla_breached') {
+            const now = new Date();
+            fetchedTickets = fetchedTickets.filter(t => t.sla_deadline && new Date(t.sla_deadline) < now && !['resolved', 'closed'].includes(t.status));
+        }
+        return fetchedTickets;
+    };
+
+    const PAGE_SIZE = 200;
 
     const fetchTickets = async () => {
         setIsLoading(true);
+        setTotalCount(null);
         try {
-            let url: string;
-            if (statusFilter === 'tenant_raised') {
-                // Tenant filter: use raisedByRole param instead of status
-                url = '/api/tickets?raisedByRole=tenant';
-            } else if (statusFilter === 'internal') {
-                url = '/api/tickets?isInternal=true';
-            } else if (statusFilter === 'all' || statusFilter === 'sla_paused' || statusFilter === 'sla_breached' || statusFilter === 'pending_validation') {
-                url = '/api/tickets';
-            } else {
-                url = `/api/tickets?status=${statusFilter}`;
-            }
-
-            if (propertyId) {
-                const sep = url.includes('?') ? '&' : '?';
-                url += `${sep}propertyId=${propertyId}`;
-            }
-
-            const response = await fetch(url);
-            if (response.ok) {
-                const data = await response.json();
-                let fetchedTickets = data.tickets || [];
-
-                // Filter by SLA Paused if selected
-                if (statusFilter === 'sla_paused') {
-                    fetchedTickets = fetchedTickets.filter((t: Ticket) => t.sla_paused);
-                }
-
-                // Filter by Pending Validation
-                if (statusFilter === 'pending_validation') {
-                    fetchedTickets = fetchedTickets.filter((t: Ticket) => t.status === 'pending_validation');
-                }
-
-                // Filter by SLA Breached: deadline has passed and ticket is not resolved/closed
-                if (statusFilter === 'sla_breached') {
-                    const now = new Date();
-                    fetchedTickets = fetchedTickets.filter((t: Ticket) =>
-                        t.sla_deadline &&
-                        new Date(t.sla_deadline) < now &&
-                        !['resolved', 'closed'].includes(t.status)
-                    );
-                }
-
-                // Sort tickets: strictly by created_at descending (latest first)
-                const sorted = [...fetchedTickets].sort((a, b) => {
-                    return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
-                });
-
-                setTickets(sorted);
-                setCachedData(cacheKey, sorted);
+            const res = await fetch(buildUrl(`limit=${PAGE_SIZE + 1}&offset=0`));
+            if (res.ok) {
+                const data = await res.json();
+                const all = data.tickets || [];
+                setHasMore(all.length > PAGE_SIZE);
+                setTotalCount(data.total ?? all.length);
+                const page = applyClientFilters(all.slice(0, PAGE_SIZE));
+                setTickets(page);
+                setCachedData(cacheKey, page);
             }
         } catch (error) {
             console.error('Error fetching tickets:', error);
             setTickets([]);
         } finally {
             setIsLoading(false);
+        }
+    };
+
+    const fetchAllCreators = async () => {
+        try {
+            const res = await fetch(buildUrl('limit=9999&offset=0'));
+            if (res.ok) {
+                const data = await res.json();
+                const all: Ticket[] = data.tickets || [];
+
+                // Build raised-by counts
+                const creatorMap = new Map<string, number>();
+                all.forEach(t => {
+                    const name = t.creator?.full_name;
+                    if (name) creatorMap.set(name, (creatorMap.get(name) ?? 0) + 1);
+                });
+                setAllCreators(
+                    Array.from(creatorMap.entries())
+                        .map(([name, count]) => ({ name, count }))
+                        .sort((a, b) => b.count - a.count)
+                );
+
+                // Build resolved-by counts (assignee of resolved/closed tickets)
+                const resolverMap = new Map<string, number>();
+                all.filter(t => ['resolved', 'closed'].includes(t.status)).forEach(t => {
+                    const name = t.assignee?.full_name;
+                    if (name) resolverMap.set(name, (resolverMap.get(name) ?? 0) + 1);
+                });
+                setAllResolvers(
+                    Array.from(resolverMap.entries())
+                        .map(([name, count]) => ({ name, count }))
+                        .sort((a, b) => b.count - a.count)
+                );
+
+                // Build assigned-to counts (all tickets, any status)
+                const assigneeMap = new Map<string, number>();
+                all.forEach(t => {
+                    const name = t.assignee?.full_name;
+                    if (name) assigneeMap.set(name, (assigneeMap.get(name) ?? 0) + 1);
+                });
+                setAllAssignees(
+                    Array.from(assigneeMap.entries())
+                        .map(([name, count]) => ({ name, count }))
+                        .sort((a, b) => b.count - a.count)
+                );
+            }
+        } catch (error) {
+            console.error('Error fetching creators:', error);
+        }
+    };
+
+    const loadMoreTickets = async () => {
+        setIsLoadingMore(true);
+        try {
+            const res = await fetch(buildUrl(`limit=${PAGE_SIZE + 1}&offset=${tickets.length}`));
+            if (res.ok) {
+                const data = await res.json();
+                const all = data.tickets || [];
+                setHasMore(all.length > PAGE_SIZE);
+                const next = applyClientFilters(all.slice(0, PAGE_SIZE));
+                setTickets(prev => [...prev, ...next]);
+            }
+        } catch (error) {
+            console.error('Error loading more tickets:', error);
+        } finally {
+            setIsLoadingMore(false);
         }
     };
 
@@ -255,12 +322,36 @@ const TicketsView: React.FC<TicketsViewProps> = ({ propertyId, canDelete, onNewR
         }
     };
 
-    const filteredTickets = searchQuery.trim()
-        ? tickets.filter(t =>
-            t.ticket_number?.toLowerCase().includes(searchQuery.trim().toLowerCase()) ||
-            t.title?.toLowerCase().includes(searchQuery.trim().toLowerCase())
-          )
-        : tickets;
+    const priorityOrder: Record<string, number> = { critical: 0, urgent: 1, high: 2, medium: 3, low: 4 };
+
+    const raisedByUsers = allCreators;
+
+    const hasActiveFilters = dateFrom !== '' || dateTo !== '' || raisedByFilter !== 'all' || resolvedByFilter !== 'all' || assignedToFilter !== 'all' || sortBy !== 'newest';
+
+    const filteredTickets = useMemo(() => {
+        let result = tickets
+            .filter(t => categoryFilter === 'all' || (t as any).skill_group?.code?.toLowerCase() === categoryFilter)
+            .filter(t =>
+                !searchQuery.trim() ||
+                t.ticket_number?.toLowerCase().includes(searchQuery.trim().toLowerCase()) ||
+                t.title?.toLowerCase().includes(searchQuery.trim().toLowerCase())
+            );
+
+        if (dateFrom) result = result.filter(t => new Date(t.created_at) >= new Date(dateFrom));
+        if (dateTo) result = result.filter(t => new Date(t.created_at) <= new Date(dateTo + 'T23:59:59'));
+        if (raisedByFilter !== 'all') result = result.filter(t => t.creator?.full_name === raisedByFilter);
+        if (resolvedByFilter !== 'all') result = result.filter(t => t.assignee?.full_name === resolvedByFilter && ['resolved', 'closed'].includes(t.status));
+        if (assignedToFilter !== 'all') result = result.filter(t => t.assignee?.full_name === assignedToFilter);
+
+        result = [...result].sort((a, b) => {
+            if (sortBy === 'oldest') return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
+            if (sortBy === 'priority_high') return (priorityOrder[a.priority] ?? 3) - (priorityOrder[b.priority] ?? 3);
+            if (sortBy === 'priority_low') return (priorityOrder[b.priority] ?? 3) - (priorityOrder[a.priority] ?? 3);
+            return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+        });
+
+        return result;
+    }, [tickets, categoryFilter, searchQuery, dateFrom, dateTo, raisedByFilter, resolvedByFilter, assignedToFilter, sortBy]);
 
     return (
         <div className="space-y-4 sm:space-y-6 px-1 sm:px-0">
@@ -290,16 +381,27 @@ const TicketsView: React.FC<TicketsViewProps> = ({ propertyId, canDelete, onNewR
                             <option value="resolved,closed">Completed</option>
                             <option value="open,assigned,in_progress,blocked">Open</option>
                             <option value="waitlist">Waitlist</option>
-                            <option value="sla_paused">SLA Paused</option>
                             <option value="sla_breached">SLA Breached</option>
                             <option value="pending_validation">Pending Validation</option>
                             <option value="tenant_raised">Client Raised</option>
                             <option value="internal">Internal</option>
                         </select>
                     </div>
+                    <div className="flex items-center gap-2">
+                        <select
+                            value={categoryFilter}
+                            onChange={(e) => setCategoryFilter(e.target.value)}
+                            className="h-9 w-full sm:w-auto px-3 bg-surface border border-border rounded-[var(--radius-md)] text-xs font-semibold font-body text-text-primary transition-smooth focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary hover:border-primary/50"
+                        >
+                            <option value="all">All Categories</option>
+                            <option value="technical">Technical</option>
+                            <option value="soft_services">Soft Service</option>
+                            <option value="plumbing">Plumbing</option>
+                        </select>
+                    </div>
                     {!isLoading && (
-                        <span className="px-2.5 py-1 bg-primary/10 text-primary text-xs font-bold rounded-full whitespace-nowrap">
-                            {filteredTickets.length} Result{filteredTickets.length !== 1 ? 's' : ''}
+                        <span className="px-2.5 py-1 bg-primary/10 text-primary text-xs font-bold rounded-full whitespace-nowrap flex items-center gap-1.5">
+                            {(categoryFilter !== 'all' || searchQuery.trim()) ? filteredTickets.length : (totalCount ?? filteredTickets.length)} Result{((categoryFilter !== 'all' || searchQuery.trim()) ? filteredTickets.length : (totalCount ?? filteredTickets.length)) !== 1 ? 's' : ''}
                         </span>
                     )}
                 </div>
@@ -337,14 +439,158 @@ const TicketsView: React.FC<TicketsViewProps> = ({ propertyId, canDelete, onNewR
                             <Plus className="w-3 h-3 sm:w-4 sm:h-4" /> <span className="whitespace-nowrap">New Request</span>
                         </button>
                     )}
-                    <button
-                        onClick={fetchTickets}
-                        className="p-2 bg-surface-elevated/50 hover:bg-surface-elevated rounded-[var(--radius-md)] transition-smooth shrink-0"
-                    >
-                        <RefreshCw className="w-4 h-4 text-text-secondary" />
-                    </button>
                 </div>
             </div>
+
+            {/* Sort / Date / User Filter Bar */}
+            <div className="flex flex-wrap items-center gap-2">
+                {/* Sort */}
+                <div className="flex items-center gap-2 h-9 px-3 bg-surface border border-border rounded-[var(--radius-md)] shadow-sm">
+                    <span className="text-[10px] font-black text-text-tertiary uppercase tracking-wider hidden sm:block">Sort</span>
+                    <select
+                        value={sortBy}
+                        onChange={(e) => setSortBy(e.target.value as any)}
+                        className="bg-transparent text-xs font-semibold text-text-primary focus:outline-none cursor-pointer appearance-none"
+                    >
+                        <option value="newest">Newest First</option>
+                        <option value="oldest">Oldest First</option>
+                        <option value="priority_high">Priority: High → Low</option>
+                        <option value="priority_low">Priority: Low → High</option>
+                    </select>
+                </div>
+
+                {/* Date From */}
+                <div className="flex items-center gap-2 h-9 px-3 bg-surface border border-border rounded-[var(--radius-md)] shadow-sm">
+                    <Calendar className="w-3.5 h-3.5 text-text-tertiary shrink-0" />
+                    <input
+                        type="date"
+                        value={dateFrom}
+                        onChange={(e) => setDateFrom(e.target.value)}
+                        className="bg-transparent text-xs font-semibold text-text-primary focus:outline-none cursor-pointer w-[120px]"
+                    />
+                </div>
+
+                {/* Date To */}
+                <div className="flex items-center gap-2 h-9 px-3 bg-surface border border-border rounded-[var(--radius-md)] shadow-sm">
+                    <Calendar className="w-3.5 h-3.5 text-text-tertiary shrink-0" />
+                    <input
+                        type="date"
+                        value={dateTo}
+                        onChange={(e) => setDateTo(e.target.value)}
+                        className="bg-transparent text-xs font-semibold text-text-primary focus:outline-none cursor-pointer w-[120px]"
+                    />
+                </div>
+
+                {/* Raised By User Filter */}
+                {raisedByUsers.length > 0 && (
+                    <div className="flex items-center gap-2 h-9 px-3 bg-surface border border-border rounded-[var(--radius-md)] shadow-sm">
+                        <User className="w-3.5 h-3.5 text-text-tertiary shrink-0" />
+                        <select
+                            value={raisedByFilter}
+                            onChange={(e) => setRaisedByFilter(e.target.value)}
+                            className="bg-transparent text-xs font-semibold text-text-primary focus:outline-none cursor-pointer appearance-none max-w-[200px]"
+                        >
+                            <option value="all">Raised By: All</option>
+                            {raisedByUsers.map(u => (
+                                <option key={u.name} value={u.name}>{`${u.name} (${u.count})`}</option>
+                            ))}
+                        </select>
+                    </div>
+                )}
+
+                {/* Resolved By Filter */}
+                {allResolvers.length > 0 && (
+                    <div className="flex items-center gap-2 h-9 px-3 bg-surface border border-border rounded-[var(--radius-md)] shadow-sm">
+                        <svg viewBox="0 0 24 24" className="w-3.5 h-3.5 text-text-tertiary shrink-0 fill-none stroke-current" strokeWidth={2}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4M7.835 4.697a3.42 3.42 0 001.946-.806 3.42 3.42 0 014.438 0 3.42 3.42 0 001.946.806 3.42 3.42 0 013.138 3.138 3.42 3.42 0 00.806 1.946 3.42 3.42 0 010 4.438 3.42 3.42 0 00-.806 1.946 3.42 3.42 0 01-3.138 3.138 3.42 3.42 0 00-1.946.806 3.42 3.42 0 01-4.438 0 3.42 3.42 0 00-1.946-.806 3.42 3.42 0 01-3.138-3.138 3.42 3.42 0 00-.806-1.946 3.42 3.42 0 010-4.438 3.42 3.42 0 00.806-1.946 3.42 3.42 0 013.138-3.138z" />
+                        </svg>
+                        <select
+                            value={resolvedByFilter}
+                            onChange={(e) => setResolvedByFilter(e.target.value)}
+                            className="bg-transparent text-xs font-semibold text-text-primary focus:outline-none cursor-pointer appearance-none max-w-[200px]"
+                        >
+                            <option value="all">Resolved By: All</option>
+                            {allResolvers.map(u => (
+                                <option key={u.name} value={u.name}>{`${u.name} (${u.count})`}</option>
+                            ))}
+                        </select>
+                    </div>
+                )}
+
+                {/* Assigned To Filter */}
+                {allAssignees.length > 0 && (
+                    <div className={`flex items-center gap-2 h-9 px-3 bg-surface border rounded-[var(--radius-md)] shadow-sm transition-colors ${assignedToFilter !== 'all' ? 'border-primary/40 bg-primary/5' : 'border-border'}`}>
+                        <User className="w-3.5 h-3.5 text-primary shrink-0" />
+                        <select
+                            value={assignedToFilter}
+                            onChange={(e) => setAssignedToFilter(e.target.value)}
+                            className="bg-transparent text-xs font-semibold text-text-primary focus:outline-none cursor-pointer appearance-none max-w-[200px]"
+                        >
+                            <option value="all">Assigned To: All</option>
+                            {allAssignees.map(u => (
+                                <option key={u.name} value={u.name}>{`${u.name} (${u.count})`}</option>
+                            ))}
+                        </select>
+                    </div>
+                )}
+
+                {/* Clear Filters */}
+                {hasActiveFilters && (
+                    <button
+                        onClick={() => { setDateFrom(''); setDateTo(''); setRaisedByFilter('all'); setResolvedByFilter('all'); setAssignedToFilter('all'); setSortBy('newest'); }}
+                        className="h-9 px-3 text-xs font-bold text-rose-500 hover:bg-rose-50 rounded-[var(--radius-md)] transition-colors border border-rose-200 bg-surface"
+                    >
+                        Clear Filters
+                    </button>
+                )}
+            </div>
+
+            {/* Filter breakdown cards — shown when any filter is active */}
+            <AnimatePresence>
+                {hasActiveFilters && !isLoading && (
+                    <motion.div
+                        initial={{ opacity: 0, y: -8 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: -8 }}
+                        className="grid grid-cols-3 gap-3"
+                    >
+                        {/* All */}
+                        <div className="bg-white border border-border rounded-2xl px-4 py-3 flex items-center gap-3 shadow-sm">
+                            <div className="w-8 h-8 bg-slate-100 rounded-xl flex items-center justify-center shrink-0">
+                                <Filter className="w-4 h-4 text-slate-500" />
+                            </div>
+                            <div>
+                                <div className="text-xl font-black text-text-primary leading-none">{filteredTickets.length}</div>
+                                <div className="text-[10px] font-bold text-text-tertiary uppercase tracking-wider mt-0.5">All Filtered</div>
+                            </div>
+                        </div>
+                        {/* Open */}
+                        <div className="bg-white border border-amber-200 rounded-2xl px-4 py-3 flex items-center gap-3 shadow-sm">
+                            <div className="w-8 h-8 bg-amber-50 rounded-xl flex items-center justify-center shrink-0">
+                                <Activity className="w-4 h-4 text-amber-500" />
+                            </div>
+                            <div>
+                                <div className="text-xl font-black text-amber-600 leading-none">
+                                    {filteredTickets.filter(t => !['resolved', 'closed', 'satisfied', 'pending_validation'].includes(t.status)).length}
+                                </div>
+                                <div className="text-[10px] font-bold text-amber-500 uppercase tracking-wider mt-0.5">Open</div>
+                            </div>
+                        </div>
+                        {/* Completed */}
+                        <div className="bg-white border border-emerald-200 rounded-2xl px-4 py-3 flex items-center gap-3 shadow-sm">
+                            <div className="w-8 h-8 bg-emerald-50 rounded-xl flex items-center justify-center shrink-0">
+                                <CheckCircle2 className="w-4 h-4 text-emerald-500" />
+                            </div>
+                            <div>
+                                <div className="text-xl font-black text-emerald-600 leading-none">
+                                    {filteredTickets.filter(t => ['resolved', 'closed', 'satisfied', 'pending_validation'].includes(t.status)).length}
+                                </div>
+                                <div className="text-[10px] font-bold text-emerald-500 uppercase tracking-wider mt-0.5">Completed</div>
+                            </div>
+                        </div>
+                    </motion.div>
+                )}
+            </AnimatePresence>
 
             {/* Tickets List */}
             <div className="glass-card overflow-hidden">
@@ -388,14 +634,15 @@ const TicketsView: React.FC<TicketsViewProps> = ({ propertyId, canDelete, onNewR
                                 status={
                                     ['closed', 'resolved'].includes(ticket.status) ? 'COMPLETED' :
                                         ticket.status === 'in_progress' ? 'IN_PROGRESS' :
-                                            ticket.assigned_to ? 'ASSIGNED' : 'OPEN'
+                                            ticket.status === 'pending_validation' ? 'PENDING_VALIDATION' :
+                                                ticket.status === 'waitlist' ? 'WAITLISTED' :
+                                                    ticket.assigned_to ? 'ASSIGNED' : 'OPEN'
                                 }
                                 ticketNumber={ticket.ticket_number}
                                 createdAt={ticket.created_at}
                                 assignedTo={ticket.assignee?.full_name}
                                 assigneePhotoUrl={ticket.assignee?.user_photo_url}
                                 photoUrl={ticket.photo_before_url}
-                                isSlaPaused={ticket.sla_paused}
                                 propertyName={ticket.property?.name}
                                 escalationChain={(() => {
                                     const logs = ticket.ticket_escalation_logs;
@@ -416,7 +663,38 @@ const TicketsView: React.FC<TicketsViewProps> = ({ propertyId, canDelete, onNewR
                         ))}
                     </div>
                 )}
+
+                {/* Load More - inline spacer so content isn't hidden behind floating bar */}
+                {hasMore && !isLoading && <div className="h-20" />}
             </div>
+
+            {/* Floating sticky Load More bar */}
+            <AnimatePresence>
+                {hasMore && !isLoading && (
+                    <motion.div
+                        initial={{ y: 80, opacity: 0 }}
+                        animate={{ y: 0, opacity: 1 }}
+                        exit={{ y: 80, opacity: 0 }}
+                        transition={{ type: 'spring', damping: 20, stiffness: 200 }}
+                        className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50"
+                    >
+                        <button
+                            onClick={loadMoreTickets}
+                            disabled={isLoadingMore}
+                            className="flex items-center gap-2.5 px-6 py-3 bg-slate-900 text-white text-sm font-bold rounded-2xl shadow-2xl hover:bg-slate-700 disabled:opacity-60 transition-all active:scale-95 border border-slate-700 backdrop-blur-sm"
+                        >
+                            {isLoadingMore ? (
+                                <><Loader2 className="w-4 h-4 animate-spin" /> Loading...</>
+                            ) : (
+                                <>
+                                    <span>Load More Tickets</span>
+                                    <span className="px-2 py-0.5 bg-white/20 rounded-lg text-xs font-black">↓</span>
+                                </>
+                            )}
+                        </button>
+                    </motion.div>
+                )}
+            </AnimatePresence>
 
             {/* Edit Modal */}
             <AnimatePresence>

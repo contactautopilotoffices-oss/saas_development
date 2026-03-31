@@ -45,7 +45,7 @@ interface Ticket {
     created_at: string;
     photo_before_url?: string;
     raised_by?: string;
-    sla_paused?: boolean;
+    raised_by_name?: string;
     assignee?: { full_name: string; user_photo_url?: string | null };
     ticket_escalation_logs?: { from_level: number; to_level: number | null; escalated_at: string; from_employee?: { full_name: string; user_photo_url?: string | null } | null; to_employee?: { full_name: string; user_photo_url?: string | null } | null }[];
 }
@@ -827,7 +827,6 @@ const OverviewTab = ({ onNavigate, property, onMenuToggle }: { onNavigate: (tab:
         <div className="space-y-10 animate-in fade-in slide-in-from-bottom-4 duration-500">
             <header className="flex flex-col md:flex-row md:items-center justify-between gap-6 pb-2">
                 <div className="flex items-center gap-4">
-                    {/* Desktop Menu Toggle (Optional but fits the pattern) */}
                     <div className="space-y-1">
                         <h1 className="text-3xl md:text-4xl font-display font-semibold text-slate-800 tracking-tight">
                             Welcome to AUTOPILOT, <span className="text-secondary opacity-80">{user?.user_metadata?.full_name?.split(' ')[0] || 'Member'}</span>
@@ -837,7 +836,6 @@ const OverviewTab = ({ onNavigate, property, onMenuToggle }: { onNavigate: (tab:
                         </p>
                     </div>
                 </div>
-
             </header>
 
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
@@ -907,8 +905,37 @@ const RequestsTab = ({ activeTickets, completedTickets, onNavigate, isLoading, o
     const router = useRouter();
     const [filter, setFilter] = useState('all');
     const [viewMode, setViewMode] = useState<'all' | 'mine'>('all');
+    const [sortBy, setSortBy] = useState<'newest' | 'oldest' | 'priority_high' | 'priority_low'>('newest');
+    const [dateFrom, setDateFrom] = useState('');
+    const [dateTo, setDateTo] = useState('');
+    const [raisedByFilter, setRaisedByFilter] = useState('all');
     const [rejectingTicketId, setRejectingTicketId] = useState<string | null>(null);
     const [rejectNote, setRejectNote] = useState('');
+
+    const priorityOrder: Record<string, number> = { critical: 0, urgent: 1, high: 2, medium: 3, low: 4 };
+
+    const raisedByUsers = useMemo(() => {
+        const all = [...activeTickets, ...completedTickets];
+        const names = Array.from(new Set(all.map(t => t.raised_by_name).filter((n): n is string => !!n)));
+        return names.sort();
+    }, [activeTickets, completedTickets]);
+
+    const applyFilters = (tickets: Ticket[]) => {
+        let result = [...tickets];
+        if (dateFrom) result = result.filter(t => new Date(t.created_at) >= new Date(dateFrom));
+        if (dateTo) result = result.filter(t => new Date(t.created_at) <= new Date(dateTo + 'T23:59:59'));
+        if (raisedByFilter !== 'all') result = result.filter(t => t.raised_by_name === raisedByFilter);
+        return result;
+    };
+
+    const applySorting = (tickets: Ticket[]) => {
+        return [...tickets].sort((a, b) => {
+            if (sortBy === 'oldest') return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
+            if (sortBy === 'priority_high') return (priorityOrder[a.priority] ?? 3) - (priorityOrder[b.priority] ?? 3);
+            if (sortBy === 'priority_low') return (priorityOrder[b.priority] ?? 3) - (priorityOrder[a.priority] ?? 3);
+            return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+        });
+    };
 
     // Apply mine/all scoping before status filtering
     const scopedActive = viewMode === 'mine'
@@ -919,14 +946,17 @@ const RequestsTab = ({ activeTickets, completedTickets, onNavigate, isLoading, o
         : completedTickets;
 
     const getFilteredTickets = () => {
-        if (filter === 'completed') return scopedCompleted;
-        if (filter === 'waitlist') return scopedActive.filter(t => t.status === 'waitlist');
-        if (filter === 'in_progress') return scopedActive.filter(t => t.status !== 'waitlist');
-        if (filter === 'pending_validation') return scopedActive.filter(t => t.status === 'pending_validation');
-        return []; // for 'all', we handle separately
+        let tickets: Ticket[] = [];
+        if (filter === 'completed') tickets = scopedCompleted;
+        else if (filter === 'waitlist') tickets = scopedActive.filter(t => t.status === 'waitlist');
+        else if (filter === 'in_progress') tickets = scopedActive.filter(t => t.status !== 'waitlist');
+        else if (filter === 'pending_validation') tickets = scopedActive.filter(t => t.status === 'pending_validation');
+        else return []; // 'all' handled separately
+        return applySorting(applyFilters(tickets));
     };
 
     const displayedTickets = getFilteredTickets();
+    const hasActiveFilters = dateFrom !== '' || dateTo !== '' || raisedByFilter !== 'all' || sortBy !== 'newest';
 
     return (
         <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
@@ -980,6 +1010,73 @@ const RequestsTab = ({ activeTickets, completedTickets, onNavigate, isLoading, o
                 </div>
             </div>
 
+            {/* Filter Bar */}
+            <div className="flex flex-wrap items-center gap-2 sm:gap-3">
+                {/* Sort */}
+                <div className="flex items-center gap-2 px-3 py-2 bg-white border border-slate-200 rounded-xl shadow-sm">
+                    <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider hidden sm:block">Sort</span>
+                    <select
+                        value={sortBy}
+                        onChange={(e) => setSortBy(e.target.value as any)}
+                        className="bg-transparent text-sm font-bold text-slate-700 focus:outline-none cursor-pointer appearance-none"
+                    >
+                        <option value="newest">Newest First</option>
+                        <option value="oldest">Oldest First</option>
+                        <option value="priority_high">Priority: High → Low</option>
+                        <option value="priority_low">Priority: Low → High</option>
+                    </select>
+                </div>
+
+                {/* Date From */}
+                <div className="flex items-center gap-2 px-3 py-2 bg-white border border-slate-200 rounded-xl shadow-sm">
+                    <Calendar className="w-4 h-4 text-slate-400 shrink-0" />
+                    <input
+                        type="date"
+                        value={dateFrom}
+                        onChange={(e) => setDateFrom(e.target.value)}
+                        className="bg-transparent text-sm font-bold text-slate-700 focus:outline-none cursor-pointer w-[130px]"
+                    />
+                </div>
+
+                {/* Date To */}
+                <div className="flex items-center gap-2 px-3 py-2 bg-white border border-slate-200 rounded-xl shadow-sm">
+                    <Calendar className="w-4 h-4 text-slate-400 shrink-0" />
+                    <input
+                        type="date"
+                        value={dateTo}
+                        onChange={(e) => setDateTo(e.target.value)}
+                        className="bg-transparent text-sm font-bold text-slate-700 focus:outline-none cursor-pointer w-[130px]"
+                    />
+                </div>
+
+                {/* Raised By User Filter */}
+                {raisedByUsers.length > 0 && (
+                    <div className="flex items-center gap-2 px-3 py-2 bg-white border border-slate-200 rounded-xl shadow-sm">
+                        <UserCircle className="w-4 h-4 text-slate-400 shrink-0" />
+                        <select
+                            value={raisedByFilter}
+                            onChange={(e) => setRaisedByFilter(e.target.value)}
+                            className="bg-transparent text-sm font-bold text-slate-700 focus:outline-none cursor-pointer appearance-none"
+                        >
+                            <option value="all">All Users</option>
+                            {raisedByUsers.map(name => (
+                                <option key={name} value={name}>{name}</option>
+                            ))}
+                        </select>
+                    </div>
+                )}
+
+                {/* Clear Filters */}
+                {hasActiveFilters && (
+                    <button
+                        onClick={() => { setDateFrom(''); setDateTo(''); setRaisedByFilter('all'); setSortBy('newest'); }}
+                        className="px-3 py-2 text-xs font-bold text-rose-500 hover:bg-rose-50 rounded-xl transition-colors border border-rose-200 bg-white"
+                    >
+                        Clear Filters
+                    </button>
+                )}
+            </div>
+
             {filter === 'all' ? (
                 <>
                     {isLoading ? (
@@ -988,18 +1085,17 @@ const RequestsTab = ({ activeTickets, completedTickets, onNavigate, isLoading, o
                                 <div key={i} className="h-40 bg-slate-50 rounded-3xl animate-pulse border border-slate-100" />
                             ))}
                         </div>
-                    ) : [...scopedActive, ...scopedCompleted].length === 0 ? (
+                    ) : applySorting(applyFilters([...scopedActive, ...scopedCompleted])).length === 0 ? (
                         <div className="bg-slate-50 border-2 border-dashed border-slate-200 rounded-[2.5rem] p-20 text-center">
                             <div className="w-20 h-20 bg-white rounded-full flex items-center justify-center mx-auto mb-6 shadow-sm">
                                 <TicketIcon className="w-8 h-8 text-slate-200" />
                             </div>
-                            <h4 className="text-lg font-bold text-slate-900 mb-2">No requests yet</h4>
-                            <p className="text-slate-500 max-w-xs mx-auto">No support requests have been raised yet.</p>
+                            <h4 className="text-lg font-bold text-slate-900 mb-2">{hasActiveFilters ? 'No matching requests' : 'No requests yet'}</h4>
+                            <p className="text-slate-500 max-w-xs mx-auto">{hasActiveFilters ? 'Try adjusting your filters.' : 'No support requests have been raised yet.'}</p>
                         </div>
                     ) : (
                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
-                            {[...scopedActive, ...scopedCompleted]
-                                .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+                            {applySorting(applyFilters([...scopedActive, ...scopedCompleted]))
                                 .map(ticket => {
                                     const isCompleted = ['resolved', 'closed'].includes(ticket.status);
                                     const isPendingValidation = ticket.status === 'pending_validation';
@@ -1009,11 +1105,10 @@ const RequestsTab = ({ activeTickets, completedTickets, onNavigate, isLoading, o
                                             id={ticket.id}
                                             title={ticket.title}
                                             priority={ticket.priority?.toUpperCase() as any || 'MEDIUM'}
-                                            status={isCompleted ? 'COMPLETED' : isPendingValidation ? 'PENDING_VALIDATION' : ticket.status.toUpperCase() as any || 'OPEN'}
+                                            status={isCompleted ? 'COMPLETED' : isPendingValidation ? 'PENDING_VALIDATION' : ticket.status === 'waitlist' ? 'WAITLISTED' : ticket.status.toUpperCase() as any || 'OPEN'}
                                             ticketNumber={ticket.ticket_number}
                                             createdAt={ticket.created_at}
                                             photoUrl={ticket.photo_before_url}
-                                            isSlaPaused={ticket.sla_paused}
                                             assignedTo={ticket.assignee?.full_name}
                                             escalationChain={buildEscalationChain(ticket.ticket_escalation_logs)}
                                             raisedByTenant={ticket.raised_by === user?.id}
@@ -1058,11 +1153,10 @@ const RequestsTab = ({ activeTickets, completedTickets, onNavigate, isLoading, o
                                     id={ticket.id}
                                     title={ticket.title}
                                     priority={ticket.priority?.toUpperCase() as any || 'MEDIUM'}
-                                    status={filter === 'completed' ? 'COMPLETED' : ticket.status.toUpperCase() as any || 'OPEN'}
+                                    status={filter === 'completed' ? 'COMPLETED' : ticket.status === 'waitlist' ? 'WAITLISTED' : ticket.status.toUpperCase() as any || 'OPEN'}
                                     ticketNumber={ticket.ticket_number}
                                     createdAt={ticket.created_at}
                                     photoUrl={ticket.photo_before_url}
-                                    isSlaPaused={ticket.sla_paused}
                                     assignedTo={ticket.assignee?.full_name}
                                     assigneePhotoUrl={ticket.assignee?.user_photo_url}
                                     escalationChain={buildEscalationChain(ticket.ticket_escalation_logs)}

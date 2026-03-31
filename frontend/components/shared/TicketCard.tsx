@@ -1,9 +1,10 @@
 'use client';
 
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import Image from 'next/image';
-import { Pencil, Trash2, CheckCircle2, XCircle, AlertTriangle } from 'lucide-react';
+import { Pencil, Trash2, CheckCircle2, XCircle, Share2, Timer } from 'lucide-react';
 import { motion } from 'framer-motion';
+import ShareModal from './ShareModal';
 
 /**
  * THE Standard Ticket Card Component
@@ -19,7 +20,7 @@ export interface TicketCardProps {
     id: string;
     title: string;
     priority: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
-    status: 'ASSIGNED' | 'IN_PROGRESS' | 'COMPLETED' | 'OPEN' | 'PENDING_VALIDATION';
+    status: 'ASSIGNED' | 'IN_PROGRESS' | 'COMPLETED' | 'OPEN' | 'PENDING_VALIDATION' | 'WAITLISTED';
 
     // Metadata
     ticketNumber: string;
@@ -29,7 +30,6 @@ export interface TicketCardProps {
     assignedTo?: string; // Full name
     assigneePhotoUrl?: string | null; // Profile photo for the person serving the request
     photoUrl?: string;
-    isSlaPaused?: boolean;
     propertyName?: string; // Property name for Super Admin view
     escalationChain?: { name: string; avatar?: string | null }[]; // Ordered: [original → ... → current]
 
@@ -58,9 +58,11 @@ const STATUS_STYLES = {
     IN_PROGRESS: 'bg-amber-100 text-amber-700',
     COMPLETED: 'bg-emerald-100 text-emerald-700',
     PENDING_VALIDATION: 'bg-violet-100 text-violet-700',
+    WAITLISTED: 'bg-purple-100 text-purple-700',
 } as const;
 
 export default function TicketCard({
+    id,
     title,
     priority,
     status,
@@ -69,7 +71,6 @@ export default function TicketCard({
     assignedTo,
     assigneePhotoUrl,
     photoUrl,
-    isSlaPaused,
     propertyName,
     escalationChain,
     raisedByTenant,
@@ -93,8 +94,39 @@ export default function TicketCard({
     const formattedDate = `${dateStr} • ${timeStr}`;
 
 
+    const [shareOpen, setShareOpen] = useState(false);
+
     const isClosed = ['COMPLETED', 'CLOSED', 'RESOLVED'].includes(status?.toUpperCase() || '');
     const isCritical = priority?.toUpperCase() === 'CRITICAL' && !isClosed;
+
+    // Live elapsed timer — counts up every second for active tickets
+    const getElapsed = () => Math.floor((Date.now() - new Date(createdAt).getTime()) / 1000);
+    const [elapsedSec, setElapsedSec] = useState(getElapsed);
+
+    useEffect(() => {
+        if (isClosed) return; // no live update for closed tickets
+        const id = setInterval(() => setElapsedSec(getElapsed()), 1000);
+        return () => clearInterval(id);
+    }, [createdAt, isClosed]);
+
+    const formatElapsed = (sec: number) => {
+        const d = Math.floor(sec / 86400);
+        const h = Math.floor((sec % 86400) / 3600);
+        const m = Math.floor((sec % 3600) / 60);
+        const s = sec % 60;
+        if (d > 0) return `${d}d ${h}h ${m}m`;
+        if (h > 0) return `${h}h ${m}m ${s}s`;
+        if (m > 0) return `${m}m ${s}s`;
+        return `${s}s`;
+    };
+
+    // Color based on age of active ticket
+    const timerColor = isClosed
+        ? 'text-gray-400 bg-gray-50'
+        : elapsedSec < 3600         ? 'text-emerald-600 bg-emerald-50'   // < 1h: green
+        : elapsedSec < 86400        ? 'text-amber-600 bg-amber-50'       // < 1d: yellow
+        : elapsedSec < 86400 * 3   ? 'text-orange-600 bg-orange-50'     // < 3d: orange
+        : 'text-rose-600 bg-rose-50 animate-pulse';                       // > 3d: red pulse
 
     return (
         <motion.div
@@ -144,17 +176,18 @@ export default function TicketCard({
                         <h3 className="text-[clamp(0.9375rem,4.5cqw,1.125rem)] font-semibold text-gray-900 line-clamp-2 leading-snug min-w-0">
                             {title}
                         </h3>
-                        {isSlaPaused && (
-                            <div className="flex items-center gap-1.5 px-2 py-0.5 bg-amber-50 border border-amber-200 rounded-lg w-fit animate-pulse">
-                                <div className="w-1.5 h-1.5 rounded-full bg-amber-500" />
-                                <span className="text-[10px] font-black text-amber-700 uppercase tracking-widest">SLA Paused</span>
-                            </div>
-                        )}
                     </div>
                 </div>
 
                 {/* Actions Container: Grouped and Top-Right */}
                 <div className="flex items-center gap-[clamp(0.125rem,1cqw,0.375rem)] shrink-0 bg-gray-50/80 p-1 rounded-xl border border-gray-100">
+                    <button
+                        onClick={(e) => { e.stopPropagation(); setShareOpen(true); }}
+                        className="p-[clamp(0.375rem,1.5cqw,0.5rem)] text-gray-400 hover:text-blue-600 hover:bg-white rounded-lg transition-all"
+                        title="Share Ticket"
+                    >
+                        <Share2 className="w-[clamp(0.875rem,2.5cqw,1rem)] h-[clamp(0.875rem,2.5cqw,1rem)]" />
+                    </button>
                     {onEdit && (
                         <button
                             onClick={(e) => {
@@ -269,10 +302,17 @@ export default function TicketCard({
 
             {/* Footer Metadata + CTA */}
             <div className="mt-auto flex flex-col @sm:flex-row @sm:items-center justify-between gap-[clamp(0.75rem,3cqw,1.25rem)] pt-[clamp(0.75rem,3cqw,1.25rem)] border-t border-gray-100 min-w-0">
-                <div className="flex items-center gap-[clamp(0.5rem,2cqw,0.75rem)] text-[clamp(0.6rem,2cqw,0.75rem)] text-text-tertiary">
-                    <span className="font-mono bg-gray-50 px-[0.4rem] py-[0.15rem] rounded text-gray-600">{ticketNumber}</span>
-                    <span className="text-gray-200">•</span>
-                    <span className="font-medium">{formattedDate}</span>
+                <div className="flex flex-col gap-1.5 min-w-0">
+                    <div className="flex items-center gap-[clamp(0.5rem,2cqw,0.75rem)] text-[clamp(0.6rem,2cqw,0.75rem)] text-text-tertiary">
+                        <span className="font-mono bg-gray-50 px-[0.4rem] py-[0.15rem] rounded text-gray-600">{ticketNumber}</span>
+                        <span className="text-gray-200">•</span>
+                        <span className="font-medium">{formattedDate}</span>
+                    </div>
+                    {/* Live elapsed timer */}
+                    <div className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-black w-fit ${timerColor}`}>
+                        <Timer className="w-3 h-3 shrink-0" />
+                        {isClosed ? `Closed after ${formatElapsed(elapsedSec)}` : formatElapsed(elapsedSec)}
+                    </div>
                 </div>
 
                 <button
@@ -314,6 +354,14 @@ export default function TicketCard({
                     )}
                 </div>
             )}
+
+            <ShareModal
+                isOpen={shareOpen}
+                onClose={() => setShareOpen(false)}
+                ticketId={id}
+                ticketNumber={ticketNumber}
+                title={title}
+            />
         </motion.div>
     );
 }
