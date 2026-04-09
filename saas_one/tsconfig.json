@@ -1,0 +1,76 @@
+{
+  "compilerOptions": {
+    "target": "ES2017",
+    "lib": [
+      "dom",
+      "dom.iterable",
+      "esnext",
+      "webworker"
+    ],
+    "allowJs": true,
+    "skipLibCheck": true,
+    "strict": true,
+    "noEmit": true,
+    "esModuleInterop": true,
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "jsx": "react-jsx",
+    "incremental": true,
+    "plugins": [
+      {
+        "name": "next"
+      }
+    ],
+    "paths": {
+      "@/*": [
+        "./*"
+      ],
+      "@frontend/*": [
+        "./frontend/*"
+      ],
+      "@backend/*": [
+        "./backend/*"
+      ],
+      "@components/*": [
+        "./frontend/components/*"
+      ],
+      "@hooks/*": [
+        "./frontend/hooks/*"
+      ],
+      "@context/*": [
+        "./frontend/context/*"
+      ],
+      "@utils/*": [
+        "./frontend/utils/*"
+      ],
+      "@types/*": [
+        "./frontend/types/*"
+      ],
+      "@constants/*": [
+        "./frontend/constants/*"
+      ],
+      "@services/*": [
+        "./backend/services/*"
+      ],
+      "@lib/*": [
+        "./backend/lib/*"
+      ]
+    }
+  },
+  "include": [
+    "next-env.d.ts",
+    "**/*.ts",
+    "**/*.tsx",
+    ".next/types/**/*.ts",
+    ".next/dev/types/**/*.ts",
+    "**/*.mts"
+  ],
+  "exclude": [
+    "node_modules",
+    "src",
+    "supabase",
+    "scripts"
+  ]
+}

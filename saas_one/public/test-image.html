@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Image Test</title>
+    <style>
+        body { 
+            background: #0f172a; 
+            color: white; 
+            font-family: Arial, sans-serif;
+            padding: 2rem;
+        }
+        .test-box {
+            background: #1e293b;
+            padding: 2rem;
+            margin: 1rem 0;
+            border-radius: 1rem;
+            border: 1px solid #334155;
+        }
+        img { width: 80px; height: 80px; }
+        .spinner {
+            width: 80px;
+            height: 80px;
+            border: 4px solid #8b5cf6;
+            border-top: 4px solid transparent;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <h1>Image Loading Test</h1>
+    
+    <div class="test-box">
+        <h2>Direct Image Test</h2>
+        <img src="/loader-icon.jpg" alt="Test" onerror="console.error('❌ Image failed')" onload="console.log('✅ Image loaded')">
+        <p>Testing if the image loads at all</p>
+    </div>
+    
+    <div class="test-box">
+        <h2>CSS Spinner Test</h2>
+        <div class="spinner"></div>
+        <p>Standard CSS animation (should work)</p>
+    </div>
+    
+    <div class="test-box">
+        <h2>Instructions</h2>
+        <ol>
+            <li>Open browser DevTools (F12)</li>
+            <li>Check Console for error messages</li>
+            <li>Check Network tab for failed requests</li>
+            <li>If image doesn't load here, the path is wrong</li>
+            <li>If it loads here but not in React, it's a React/Next.js issue</li>
+        </ol>
+    </div>
+</body>
+<script>
+    console.log('Page loaded');
+    console.log('Trying to load image from: /loader-icon.jpg');
+</script>
+</html>
