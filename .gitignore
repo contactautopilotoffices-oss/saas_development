@@ -50,3 +50,6 @@ output.json
 roles.json
 push.log
 tunnel.txt
+.claude/
+.gemini/
+
