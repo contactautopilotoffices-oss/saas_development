@@ -1,0 +1,1 @@
+ALTER TABLE electricity_meters ADD COLUMN deleted_at TIMESTAMPTZ DEFAULT NULL;

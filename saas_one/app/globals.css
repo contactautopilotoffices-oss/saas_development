@@ -1,0 +1,1416 @@
+@import "tailwindcss";
+
+/* ============================================
+   DESIGN SYSTEM TOKENS - FACILITY MANAGEMENT SaaS
+   Primary: #708F96 (Muted Sky Blue)
+   Secondary: #AA895F (Warm Sand/Gold)
+   ============================================ */
+
+:root {
+  /* Brand Colors */
+  --primary: #708F96;
+  --primary-light: #8AA5AC;
+  --primary-dark: #5A737A;
+  --secondary: #AA895F;
+  --secondary-light: #C4A479;
+  --secondary-dark: #8F7350;
+
+  /* Surfaces & Backgrounds - Phase 3 Premium Gradients */
+  --background: #FAFBFC;
+  --canvas-bg: radial-gradient(1200px at 10% 10%, rgba(0, 0, 0, 0.01), transparent 40%), linear-gradient(180deg, #F8FAFC, #F1F5F9);
+  --sidebar-bg: #F8FAFC;
+  --surface: #FFFFFF;
+  --surface-elevated: #F8FAFC;
+  --border: #E2E8F0;
+  --border-subtle: #F1F5F9;
+  --muted: #F1F5F9;
+  --card: #FFFFFF;
+  --foreground: #1A2332;
+
+  /* Phase 3 Card Surface (Light) */
+  --card-surface: linear-gradient(135deg, rgba(255, 255, 255, 0.85) 0%, rgba(245, 247, 249, 0.75) 100%);
+  --card-border: rgba(0, 0, 0, 0.04);
+  --card-shadow: 0 20px 40px rgba(0, 0, 0, 0.08);
+  --card-radius: 20px;
+
+  /* Phase 3 Large Panel (Light) */
+  --panel-surface: linear-gradient(160deg, rgba(255, 255, 255, 0.9), rgba(248, 249, 251, 0.8));
+  --panel-border: rgba(0, 0, 0, 0.04);
+  --panel-radius: 24px;
+
+  /* Text Hierarchy - Light Mode (Softened Dark) */
+  --text-primary: rgba(26, 35, 50, 0.92);
+  --text-secondary: rgba(26, 35, 50, 0.62);
+  --text-tertiary: rgba(26, 35, 50, 0.42);
+  --text-muted: rgba(26, 35, 50, 0.42);
+  --text-inverse: rgba(230, 235, 238, 0.92);
+
+  /* Sidebar/Navigation */
+  --sidebar: #FFFFFF;
+  --sidebar-foreground: #1A2332;
+  --sidebar-border: #E2E8F0;
+
+  /* Status Colors */
+  --success: #10B981;
+  --warning: #F59E0B;
+  --error: #EF4444;
+  --info: #3B82F6;
+
+  /* Glass/Dashboard Specific (Light Mode) */
+  --glass-bg: rgba(255, 255, 255, 0.7);
+  --glass-border: rgba(226, 232, 240, 0.5);
+  --glass-shadow: rgba(0, 0, 0, 0.05);
+
+  /* Neon Accents for Charts/Metrics */
+  --neon-cyan: #06B6D4;
+  --neon-magenta: #EC4899;
+  --neon-cyan-glow: rgba(6, 182, 212, 0.4);
+  --neon-magenta-glow: rgba(236, 72, 153, 0.4);
+
+  /* Elevation Shadows */
+  --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+  --shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+
+  /* 8px Spacing System */
+  --space-1: 8px;
+  --space-2: 16px;
+  --space-3: 24px;
+  --space-4: 32px;
+  --space-5: 40px;
+  --space-6: 48px;
+  --space-8: 64px;
+  --space-10: 80px;
+
+  /* Border Radius */
+  --radius-sm: 6px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 24px;
+
+  /* Typography Scale */
+  --font-display: 'Poppins', sans-serif;
+  --font-body: 'Urbanist', sans-serif;
+
+  /* Transitions */
+  --transition-smooth: cubic-bezier(0.4, 0.0, 0.2, 1);
+  --duration-fast: 150ms;
+  --duration-base: 250ms;
+  --duration-slow: 350ms;
+
+  /* ============================================
+     ENERGY UTILITIES DESIGN TOKENS
+     Grid Power (Electricity): Amber/Gold
+     DG Power (Diesel): Emerald/Green
+     ============================================ */
+
+  /* Grid Power (Electricity) - Amber Palette */
+  --energy-grid: #F59E0B;
+  --energy-grid-light: #FCD34D;
+  --energy-grid-dark: #D97706;
+  --energy-grid-bg: rgba(245, 158, 11, 0.1);
+  --energy-grid-bg-hover: rgba(245, 158, 11, 0.15);
+  --energy-grid-border: rgba(245, 158, 11, 0.2);
+  --energy-grid-glow: rgba(245, 158, 11, 0.4);
+
+  /* DG Power (Diesel) - Emerald Palette */
+  --energy-dg: #10B981;
+  --energy-dg-light: #34D399;
+  --energy-dg-dark: #059669;
+  --energy-dg-bg: rgba(16, 185, 129, 0.1);
+  --energy-dg-bg-hover: rgba(16, 185, 129, 0.15);
+  --energy-dg-border: rgba(16, 185, 129, 0.2);
+  --energy-dg-glow: rgba(16, 185, 129, 0.4);
+
+  /* Combined Utilities */
+  --energy-combined: var(--primary);
+  --energy-combined-bg: rgba(112, 143, 150, 0.1);
+
+  /* Energy Cost Display */
+  --energy-cost-positive: #10B981;
+  --energy-cost-negative: #EF4444;
+  --energy-cost-neutral: var(--text-secondary);
+
+  /* Utility Card Surfaces */
+  --energy-card-radius: 16px;
+  --energy-card-padding: 20px;
+  --energy-card-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+
+  /* Utility Chart Colors */
+  --chart-grid-line: rgba(0, 0, 0, 0.08);
+  --chart-grid-fill: rgba(245, 158, 11, 0.6);
+  --chart-dg-fill: rgba(16, 185, 129, 0.6);
+}
+
+.dark {
+  /* Surfaces & Backgrounds - Phase 3 Premium Dark - Ambient Teal Palette */
+  --background: #0B1214;
+  --canvas-bg: radial-gradient(1200px at 10% 10%, rgba(112, 143, 150, 0.15), transparent 40%), linear-gradient(180deg, #0B1214, #0F1618);
+  --sidebar-bg: #080E10;
+  --surface: #121A1D;
+  --surface-elevated: #1C2629;
+  --border: #242E31;
+  --border-subtle: #1C2629;
+  --muted: #0D1416;
+  --card: #121A1D;
+  --foreground: #E6EBEE;
+
+  /* Phase 3 Card Surface (Dark) */
+  --card-surface: linear-gradient(135deg, rgba(20, 30, 35, 0.95) 0%, rgba(15, 22, 26, 0.9) 100%);
+  --card-border: rgba(112, 143, 150, 0.1);
+  --card-shadow: 0 30px 60px rgba(0, 0, 0, 0.5);
+
+  /* Phase 3 Large Panel (Dark) */
+  --panel-surface: linear-gradient(160deg, rgba(18, 28, 32, 0.98), rgba(11, 18, 20, 0.95));
+  --panel-border: rgba(112, 143, 150, 0.12);
+
+  /* Text Hierarchy - Dark Mode (Clean & High Readability) */
+  --text-primary: rgba(230, 235, 238, 0.95);
+  --text-secondary: rgba(230, 235, 238, 0.75);
+  --text-tertiary: rgba(230, 235, 238, 0.55);
+  --text-muted: rgba(230, 235, 238, 0.45);
+  --text-inverse: rgba(26, 35, 50, 0.95);
+
+  /* Sidebar/Navigation */
+  --sidebar: #151B2B;
+  --sidebar-foreground: #F8FAFC;
+  --sidebar-border: #2D3748;
+
+  /* Glass/Dashboard Specific (Dark Mode) */
+  --glass-bg: rgba(21, 27, 43, 0.6);
+  --glass-border: rgba(45, 55, 72, 0.6);
+  --glass-shadow: rgba(0, 0, 0, 0.3);
+
+  /* Elevation Shadows (Dark) */
+  --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.4), 0 2px 4px -1px rgba(0, 0, 0, 0.3);
+  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.5), 0 4px 6px -2px rgba(0, 0, 0, 0.4);
+  --shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.6), 0 10px 10px -5px rgba(0, 0, 0, 0.5);
+
+  /* Energy Utilities (Dark Mode Adjustments) */
+  --energy-grid-bg: rgba(245, 158, 11, 0.15);
+  --energy-grid-bg-hover: rgba(245, 158, 11, 0.2);
+  --energy-grid-border: rgba(245, 158, 11, 0.25);
+  --energy-dg-bg: rgba(16, 185, 129, 0.15);
+  --energy-dg-bg-hover: rgba(16, 185, 129, 0.2);
+  --energy-dg-border: rgba(16, 185, 129, 0.25);
+  --energy-card-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  --chart-grid-line: rgba(255, 255, 255, 0.08);
+  --chart-grid-fill: rgba(245, 158, 11, 0.7);
+  --chart-dg-fill: rgba(16, 185, 129, 0.7);
+}
+
+@theme {
+  /* Font Families */
+  --font-display: 'Poppins', sans-serif;
+  --font-body: 'Urbanist', sans-serif;
+
+  /* Brand Colors */
+  --color-primary: var(--primary);
+  --color-primary-light: var(--primary-light);
+  --color-primary-dark: var(--primary-dark);
+  --color-secondary: var(--secondary);
+  --color-secondary-light: var(--secondary-light);
+  --color-secondary-dark: var(--secondary-dark);
+
+  /* Base Colors */
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-surface: var(--surface);
+  --color-surface-elevated: var(--surface-elevated);
+  --color-border: var(--border);
+  --color-border-subtle: var(--border-subtle);
+  --color-card: var(--card);
+  --color-muted: var(--muted);
+
+  /* Text */
+  --color-text-primary: var(--text-primary);
+  --color-text-secondary: var(--text-secondary);
+  --color-text-tertiary: var(--text-tertiary);
+  --color-text-inverse: var(--text-inverse);
+
+  /* Sidebar */
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+
+  /* Status */
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-error: var(--error);
+  --color-info: var(--info);
+
+  /* Neon Accents */
+  --color-neon-cyan: var(--neon-cyan);
+  --color-neon-magenta: var(--neon-magenta);
+
+  /* Animations */
+  --animate-fade-in: fade-in var(--duration-base) var(--transition-smooth);
+  --animate-slide-up: slide-up var(--duration-base) var(--transition-smooth);
+  --animate-scale-in: scale-in var(--duration-base) var(--transition-smooth);
+
+  @keyframes fade-in {
+    from {
+      opacity: 0;
+    }
+
+    to {
+      opacity: 1;
+    }
+  }
+
+  @keyframes slide-up {
+    from {
+      transform: translateY(10px);
+      opacity: 0;
+    }
+
+    to {
+      transform: translateY(0);
+      opacity: 1;
+    }
+  }
+
+  @keyframes scale-in {
+    from {
+      transform: scale(0.95);
+      opacity: 0;
+    }
+
+    to {
+      transform: scale(1);
+      opacity: 1;
+    }
+  }
+
+  @keyframes glow-pulse {
+
+    0%,
+    100% {
+      opacity: 1;
+    }
+
+    50% {
+      opacity: 0.6;
+    }
+  }
+
+  --animate-gradient-xy: gradient-xy 15s ease infinite;
+
+  @keyframes gradient-xy {
+
+    0%,
+    100% {
+      background-size: 400% 400%;
+      background-position: left center;
+    }
+
+    50% {
+      background-size: 200% 200%;
+      background-position: right center;
+    }
+  }
+}
+
+/* Base Styles */
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    background: var(--canvas-bg);
+    color: var(--text-primary);
+    @apply antialiased;
+    font-family: var(--font-body);
+    font-feature-settings: "rlig" 1, "calt" 1;
+    min-height: 100vh;
+    width: 100%;
+    margin: 0;
+    padding: 0;
+    overflow-x: hidden;
+    position: relative;
+    display: flex;
+    flex-direction: column;
+  }
+
+  html {
+    scroll-behavior: smooth;
+    overflow-x: hidden;
+    height: 100%;
+  }
+
+  /* Universal Layout Containers */
+  .layout-root {
+    display: flex;
+    min-height: 100vh;
+    width: 100%;
+    position: relative;
+    overflow-x: hidden;
+  }
+
+  .main-content {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    position: relative;
+  }
+
+  /* Phase 3: Grain Overlay */
+  body::before {
+    content: "";
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    opacity: 0.015;
+    pointer-events: none;
+    z-index: 9999;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E");
+  }
+
+  /* Sidebar Header Reset - Phase 3 */
+  .sidebar-header,
+  .sidebar-header-container {
+    background: transparent !important;
+    box-shadow: none !important;
+    border: none !important;
+    border-radius: 0 !important;
+    padding: 28px 24px 20px !important;
+  }
+
+  /* Legacy Surfaces - To be Phased Out */
+  .premium-card,
+  .kpi-card {
+    background: rgba(255, 255, 255, 0.55);
+    backdrop-filter: blur(22px) saturate(120%);
+    -webkit-backdrop-filter: blur(22px) saturate(120%);
+    border-radius: 22px;
+    border: 1px solid rgba(255, 255, 255, 0.35);
+    box-shadow: 0 20px 40px rgba(0, 0, 0, 0.08);
+    transition: background 220ms var(--transition-smooth), transform 220ms var(--transition-smooth);
+  }
+
+  .dark .premium-card,
+  .dark .kpi-card {
+    background: rgba(20, 26, 34, 0.55);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    box-shadow: 0 30px 60px rgba(0, 0, 0, 0.45);
+  }
+
+  .premium-panel {
+    background: rgba(255, 255, 255, 0.45);
+    backdrop-filter: blur(26px);
+    -webkit-backdrop-filter: blur(26px);
+    border-radius: 28px;
+    border: 1px solid rgba(255, 255, 255, 0.28);
+    transition: background 220ms var(--transition-smooth), transform 220ms var(--transition-smooth);
+  }
+
+  .dark .premium-panel {
+    background: rgba(20, 26, 34, 0.45);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+  }
+
+  .premium-list {
+    background: rgba(255, 255, 255, 0.7);
+    border: 1px solid rgba(0, 0, 0, 0.03);
+    border-radius: 28px;
+  }
+
+  .dark .premium-list {
+    background: rgba(18, 24, 32, 0.85);
+    border: 1px solid rgba(255, 255, 255, 0.04);
+  }
+
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
+    font-family: var(--font-display);
+    @apply tracking-tight;
+    color: var(--text-primary);
+    font-weight: 500 !important;
+    /* Strict enforcement of softened headings */
+  }
+
+  h1 {
+    font-size: 2.25rem;
+    font-weight: 600 !important;
+  }
+
+  /* Only H1/H2 get 600 */
+  h2 {
+    font-size: 1.75rem;
+    font-weight: 600 !important;
+  }
+
+  h3 {
+    font-size: 1.5rem;
+    font-weight: 500 !important;
+  }
+
+  h4 {
+    font-size: 1.25rem;
+    font-weight: 500 !important;
+  }
+
+  h5 {
+    font-size: 1.125rem;
+    font-weight: 500 !important;
+  }
+
+  h6 {
+    font-size: 1rem;
+    font-weight: 500 !important;
+  }
+
+  label {
+    font-family: var(--font-body);
+    font-weight: 500 !important;
+    color: var(--text-secondary);
+    text-transform: none !important;
+    /* Kill all caps permanently */
+  }
+
+  /* Numbers Utility - Command Grade */
+  .metric-number {
+    font-family: var(--font-display);
+    font-weight: 600;
+    letter-spacing: -0.02em;
+  }
+
+  p {
+    font-family: var(--font-body);
+  }
+}
+
+/* Custom Utilities & Components */
+@layer utilities {
+
+  /* Primary/Secondary Color Utilities */
+  .bg-primary {
+    background-color: var(--primary);
+  }
+
+  .bg-primary\/10 {
+    background-color: rgba(112, 143, 150, 0.1);
+  }
+
+  .bg-primary\/20 {
+    background-color: rgba(112, 143, 150, 0.2);
+  }
+
+  .bg-secondary {
+    background-color: var(--secondary);
+  }
+
+  .bg-secondary\/10 {
+    background-color: rgba(170, 137, 95, 0.1);
+  }
+
+  .bg-secondary\/25 {
+    background-color: rgba(170, 137, 95, 0.25);
+  }
+
+  .text-primary {
+    color: var(--primary);
+  }
+
+  .text-secondary {
+    color: var(--secondary);
+  }
+
+  .text-text-inverse {
+    color: var(--text-inverse);
+  }
+
+  .border-primary {
+    border-color: var(--primary);
+  }
+
+  .hover\:border-primary:hover {
+    border-color: var(--primary);
+  }
+
+  .shadow-primary\/25 {
+    box-shadow: 0 10px 15px -3px rgba(112, 143, 150, 0.25);
+  }
+
+  .shadow-secondary\/25 {
+    box-shadow: 0 10px 15px -3px rgba(170, 137, 95, 0.25);
+  }
+
+  /* Background/Surface Utilities */
+  .bg-background {
+    background-color: var(--background);
+  }
+
+  .bg-sidebar {
+    background-color: var(--sidebar-bg);
+  }
+
+  .bg-surface-card {
+    background: var(--surface);
+  }
+
+  .bg-surface-elevated {
+    background: var(--surface-elevated);
+  }
+
+  .hover\:bg-surface-elevated:hover {
+    background: var(--surface-elevated);
+  }
+
+  .text-text-primary {
+    color: var(--text-primary);
+  }
+
+  .text-text-secondary {
+    color: var(--text-secondary);
+  }
+
+  .text-text-tertiary {
+    color: var(--text-tertiary);
+  }
+
+  .hover\:text-text-primary:hover {
+    color: var(--text-primary);
+  }
+
+  .border-border {
+    border-color: var(--border);
+  }
+
+  /* --- Phase 4: True Glass (Controlled, Premium) --- */
+  .glass-card {
+    background: rgba(255, 255, 255, 0.55);
+    backdrop-filter: blur(22px) saturate(120%);
+    -webkit-backdrop-filter: blur(22px) saturate(120%);
+    border-radius: 22px;
+    border: 1px solid rgba(255, 255, 255, 0.35);
+    box-shadow: 0 20px 40px rgba(0, 0, 0, 0.08);
+    transition: background 220ms var(--transition-smooth), transform 220ms var(--transition-smooth);
+  }
+
+  .dark .glass-card {
+    background: rgba(20, 26, 34, 0.55);
+    backdrop-filter: blur(22px) saturate(120%);
+    -webkit-backdrop-filter: blur(22px) saturate(120%);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    box-shadow: 0 30px 60px rgba(0, 0, 0, 0.45);
+  }
+
+  .glass-card:hover {
+    transform: translateY(-2px);
+  }
+
+  .glass-panel {
+    background: rgba(255, 255, 255, 0.45);
+    backdrop-filter: blur(26px);
+    -webkit-backdrop-filter: blur(26px);
+    border-radius: 28px;
+    border: 1px solid rgba(255, 255, 255, 0.28);
+    transition: background 220ms var(--transition-smooth), transform 220ms var(--transition-smooth);
+  }
+
+  .dark .glass-panel {
+    background: rgba(20, 26, 34, 0.45);
+    backdrop-filter: blur(26px);
+    -webkit-backdrop-filter: blur(26px);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+  }
+
+  .kpi-card {
+    padding: 28px !important;
+  }
+
+  .kpi-icon {
+    background: rgba(255, 255, 255, 0.25) !important;
+    border-radius: 14px !important;
+  }
+
+  .dark .kpi-icon {
+    background: rgba(255, 255, 255, 0.05) !important;
+  }
+
+  /* Solid Enterprise Cards (Non-Dashboard) */
+  .enterprise-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    box-shadow: var(--shadow-sm);
+    transition: all var(--duration-base) var(--transition-smooth);
+  }
+
+  .enterprise-card:hover {
+    border-color: var(--primary);
+    box-shadow: var(--shadow-md);
+  }
+
+  /* Neon Glow Effects (Charts/Metrics Only) */
+  .neon-cyan {
+    color: var(--neon-cyan);
+    text-shadow: 0 0 10px var(--neon-cyan-glow);
+  }
+
+  .neon-magenta {
+    color: var(--neon-magenta);
+    text-shadow: 0 0 10px var(--neon-magenta-glow);
+  }
+
+  .neon-border-cyan {
+    border-color: var(--neon-cyan);
+    box-shadow: 0 0 20px var(--neon-cyan-glow), inset 0 0 20px var(--neon-cyan-glow);
+  }
+
+  .neon-border-magenta {
+    border-color: var(--neon-magenta);
+    box-shadow: 0 0 20px var(--neon-magenta-glow), inset 0 0 20px var(--neon-magenta-glow);
+  }
+
+  /* Gradient Overlays for Dashboard Metrics */
+  .gradient-cyan-magenta {
+    background: linear-gradient(135deg, var(--neon-cyan) 0%, var(--neon-magenta) 100%);
+  }
+
+  .gradient-cyan-magenta-subtle {
+    background: linear-gradient(135deg, rgba(6, 182, 212, 0.1) 0%, rgba(236, 72, 153, 0.1) 100%);
+  }
+
+  /* Spacing Utilities (8px system) */
+  .space-1 {
+    margin: var(--space-1);
+  }
+
+  .space-2 {
+    margin: var(--space-2);
+  }
+
+  .space-3 {
+    margin: var(--space-3);
+  }
+
+  .space-4 {
+    margin: var(--space-4);
+  }
+
+  .space-5 {
+    margin: var(--space-5);
+  }
+
+  .space-6 {
+    margin: var(--space-6);
+  }
+
+  .space-8 {
+    margin: var(--space-8);
+  }
+
+  .space-10 {
+    margin: var(--space-10);
+  }
+
+  .gap-1 {
+    gap: var(--space-1);
+  }
+
+  .gap-2 {
+    gap: var(--space-2);
+  }
+
+  .gap-3 {
+    gap: var(--space-3);
+  }
+
+  .gap-4 {
+    gap: var(--space-4);
+  }
+
+  .gap-5 {
+    gap: var(--space-5);
+  }
+
+  .gap-6 {
+    gap: var(--space-6);
+  }
+
+  .p-1 {
+    padding: var(--space-1);
+  }
+
+  .p-2 {
+    padding: var(--space-2);
+  }
+
+  .p-3 {
+    padding: var(--space-3);
+  }
+
+  .p-4 {
+    padding: var(--space-4);
+  }
+
+  .p-5 {
+    padding: var(--space-5);
+  }
+
+  .p-6 {
+    padding: var(--space-6);
+  }
+
+  /* Smooth Transitions */
+  .transition-smooth {
+    transition: all var(--duration-base) var(--transition-smooth);
+  }
+
+  .transition-fast {
+    transition: all var(--duration-fast) var(--transition-smooth);
+  }
+
+  .transition-slow {
+    transition: all var(--duration-slow) var(--transition-smooth);
+  }
+
+  /* Floating HUD Effect */
+  .floating-hud {
+    position: relative;
+    animation: float 6s ease-in-out infinite;
+  }
+
+  @keyframes float {
+
+    0%,
+    100% {
+      transform: translateY(0px);
+    }
+
+    50% {
+      transform: translateY(-4px);
+    }
+  }
+
+  /* Industrial Outline Style */
+  .outlined {
+    border: 1px solid var(--border);
+    background: transparent;
+  }
+
+  .outlined-primary {
+    border: 1px solid var(--primary);
+    background: transparent;
+    color: var(--primary);
+  }
+
+  .outlined-secondary {
+    border: 1px solid var(--secondary);
+    background: transparent;
+    color: var(--secondary);
+  }
+
+  /* Text Balance */
+  .text-balance {
+    text-wrap: balance;
+  }
+
+  /* ============================================
+     ENERGY UTILITIES CLASSES
+     ============================================ */
+
+  /* Grid Power (Electricity) */
+  .energy-grid {
+    color: var(--energy-grid);
+  }
+
+  .energy-grid-bg {
+    background-color: var(--energy-grid-bg);
+  }
+
+  .energy-grid-border {
+    border-color: var(--energy-grid-border);
+  }
+
+  .energy-grid-card {
+    background-color: var(--energy-grid-bg);
+    border: 1px solid var(--energy-grid-border);
+    border-radius: var(--energy-card-radius);
+    padding: var(--energy-card-padding);
+    transition: all var(--duration-base) var(--transition-smooth);
+  }
+
+  .energy-grid-card:hover {
+    background-color: var(--energy-grid-bg-hover);
+    box-shadow: 0 0 20px var(--energy-grid-glow);
+  }
+
+  /* DG Power (Diesel) */
+  .energy-dg {
+    color: var(--energy-dg);
+  }
+
+  .energy-dg-bg {
+    background-color: var(--energy-dg-bg);
+  }
+
+  .energy-dg-border {
+    border-color: var(--energy-dg-border);
+  }
+
+  .energy-dg-card {
+    background-color: var(--energy-dg-bg);
+    border: 1px solid var(--energy-dg-border);
+    border-radius: var(--energy-card-radius);
+    padding: var(--energy-card-padding);
+    transition: all var(--duration-base) var(--transition-smooth);
+  }
+
+  .energy-dg-card:hover {
+    background-color: var(--energy-dg-bg-hover);
+    box-shadow: 0 0 20px var(--energy-dg-glow);
+  }
+
+  /* Combined Utilities Card */
+  .energy-combined-card {
+    background-color: var(--energy-combined-bg);
+    border: 1px solid var(--border);
+    border-radius: var(--energy-card-radius);
+    padding: var(--energy-card-padding);
+    box-shadow: var(--energy-card-shadow);
+  }
+
+  /* Energy Cost Badge */
+  .energy-cost-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-weight: 700;
+    font-size: 0.875rem;
+    padding: 4px 10px;
+    border-radius: 8px;
+  }
+
+  .energy-cost-badge.grid {
+    background-color: var(--energy-grid-bg);
+    color: var(--energy-grid);
+  }
+
+  .energy-cost-badge.dg {
+    background-color: var(--energy-dg-bg);
+    color: var(--energy-dg);
+  }
+
+  /* Energy Chart Bar */
+  .energy-chart-bar {
+    border-radius: 4px 4px 0 0;
+    transition: opacity var(--duration-fast) var(--transition-smooth);
+  }
+
+  .energy-chart-bar.grid {
+    background-color: var(--chart-grid-fill);
+  }
+
+  .energy-chart-bar.dg {
+    background-color: var(--chart-dg-fill);
+  }
+
+  .energy-chart-bar:hover {
+    opacity: 0.85;
+  }
+
+  /* Energy Summary Hero */
+  .energy-summary-hero {
+    background: linear-gradient(135deg, var(--surface) 0%, var(--surface-elevated) 100%);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-xl);
+    padding: var(--space-6);
+    box-shadow: var(--shadow-lg);
+  }
+
+  /* Energy Breakdown Bar */
+  .energy-breakdown-bar {
+    height: 12px;
+    border-radius: 6px;
+    background-color: var(--muted);
+    overflow: hidden;
+    display: flex;
+  }
+
+  .energy-breakdown-bar .grid-segment {
+    background-color: var(--energy-grid);
+    transition: width var(--duration-slow) var(--transition-smooth);
+  }
+
+  .energy-breakdown-bar .dg-segment {
+    background-color: var(--energy-dg);
+    transition: width var(--duration-slow) var(--transition-smooth);
+  }
+
+  /* Energy Meter Strip Colors */
+  .energy-meter-strip {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 4px;
+    height: 100%;
+    border-radius: 4px 0 0 4px;
+    transition: background-color var(--duration-base) var(--transition-smooth);
+  }
+
+  .energy-meter-strip.grid {
+    background-color: var(--energy-grid);
+  }
+
+  .energy-meter-strip.dg {
+    background-color: var(--energy-dg);
+  }
+
+  .energy-meter-strip.inactive {
+    background-color: var(--border);
+  }
+
+  .energy-meter-strip.warning {
+    background-color: var(--warning);
+  }
+}
+
+/* ============================================
+   MOBILE-FIRST RESPONSIVE DESIGN
+   Breakpoints: sm(640px), md(768px), lg(1024px)
+   ============================================ */
+
+/* Base Mobile Styles (< 640px) */
+@media (max-width: 639px) {
+
+  /* Sidebar: Hidden by default on mobile, shown as overlay when toggled */
+  .sidebar-mobile-hidden {
+    transform: translateX(-100%);
+    position: fixed;
+    z-index: 50;
+    width: 280px;
+    box-shadow: var(--shadow-xl);
+  }
+
+  .sidebar-mobile-visible {
+    transform: translateX(0);
+  }
+
+  /* Overlay backdrop when sidebar is open */
+  .sidebar-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.5);
+    z-index: 45;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 200ms ease;
+  }
+
+  .sidebar-overlay-visible {
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  /* Context Bar mobile optimization */
+  .context-bar-mobile {
+    padding-left: 1rem !important;
+    padding-right: 1rem !important;
+    height: 3.5rem !important;
+  }
+
+  /* Main content takes full width */
+  .main-content-mobile {
+    width: 100% !important;
+    padding: 1rem !important;
+  }
+
+  /* Cards stack properly */
+  .card-grid-mobile {
+    grid-template-columns: 1fr !important;
+    gap: 1rem !important;
+  }
+
+  /* Typography scaling */
+  h1 {
+    font-size: 1.5rem !important;
+  }
+
+  h2 {
+    font-size: 1.25rem !important;
+  }
+
+  h3 {
+    font-size: 1.125rem !important;
+  }
+
+  /* Reduce padding globally */
+  .premium-card,
+  .kpi-card {
+    padding: 16px !important;
+  }
+
+  /* Touch-friendly tap targets */
+  button,
+  a,
+  [role="button"] {
+    min-height: 44px;
+    min-width: 44px;
+  }
+
+  /* Hide scrollbar on mobile */
+  ::-webkit-scrollbar {
+    display: none;
+  }
+
+  /* Prevent horizontal scroll */
+  body {
+    overflow-x: hidden;
+  }
+}
+
+/* Tablet Styles (640px - 1023px) */
+@media (min-width: 640px) and (max-width: 1023px) {
+  .sidebar-tablet {
+    width: 240px;
+  }
+
+  .main-content-tablet {
+    margin-left: 0;
+  }
+}
+
+/* Desktop Styles (>= 1024px) */
+@media (min-width: 1024px) {
+  .sidebar-desktop {
+    transform: translateX(0);
+    position: sticky;
+    width: 288px;
+  }
+}
+
+/* Mobile Menu Toggle Button */
+.mobile-menu-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--text-primary);
+  transition: all 200ms ease;
+  cursor: pointer;
+  z-index: 60;
+}
+
+.mobile-menu-toggle:hover {
+  background: var(--surface-elevated);
+  box-shadow: var(--shadow-sm);
+}
+
+@media (min-width: 1024px) {
+  .mobile-menu-toggle {
+    display: none;
+  }
+}
+
+/* Mobile Navigation Header */
+.mobile-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.75rem 1rem;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  z-index: 40;
+}
+
+@media (min-width: 1024px) {
+  .mobile-header {
+    display: none;
+  }
+}
+
+/* Safe Area Insets for iOS */
+@supports (padding-top: env(safe-area-inset-top)) {
+  .mobile-header {
+    padding-top: calc(0.75rem + env(safe-area-inset-top));
+  }
+
+  body {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+}
+
+/* Responsive Container */
+.responsive-container {
+  width: 100%;
+  max-width: 100%;
+  padding-left: 1rem;
+  padding-right: 1rem;
+}
+
+@media (min-width: 640px) {
+  .responsive-container {
+    padding-left: 1.5rem;
+    padding-right: 1.5rem;
+  }
+}
+
+@media (min-width: 1024px) {
+  .responsive-container {
+    padding-left: 2rem;
+    padding-right: 2rem;
+  }
+}
+
+/* Mobile-friendly Grid */
+.responsive-grid {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: 1fr;
+}
+
+@media (min-width: 640px) {
+  .responsive-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 1.25rem;
+  }
+}
+
+@media (min-width: 1024px) {
+  .responsive-grid {
+    grid-template-columns: repeat(3, 1fr);
+    gap: 1.5rem;
+  }
+}
+
+@media (min-width: 1280px) {
+  .responsive-grid {
+    grid-template-columns: repeat(4, 1fr);
+  }
+}
+
+/* Flex Stack (column on mobile, row on desktop) */
+.flex-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+@media (min-width: 768px) {
+  .flex-stack {
+    flex-direction: row;
+    align-items: center;
+  }
+}
+
+/* Hide on Mobile / Show on Desktop */
+.hide-mobile {
+  display: none;
+}
+
+@media (min-width: 768px) {
+  .hide-mobile {
+    display: block;
+  }
+
+  .hide-desktop {
+    display: none;
+  }
+}
+
+/* Truncate text on mobile */
+.mobile-truncate {
+  max-width: 150px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (min-width: 768px) {
+  .mobile-truncate {
+    max-width: none;
+  }
+}
+
+/* Bottom Navigation (Mobile) */
+.bottom-nav {
+  display: none;
+}
+
+@media (max-width: 767px) {
+  .bottom-nav {
+    display: flex;
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 64px;
+    background: var(--surface);
+    border-top: 1px solid var(--border);
+    padding: 8px 16px;
+    padding-bottom: calc(8px + env(safe-area-inset-bottom, 0px));
+    z-index: 50;
+    justify-content: space-around;
+    align-items: center;
+  }
+
+  /* Account for bottom nav in content */
+  .has-bottom-nav {
+    padding-bottom: 80px;
+  }
+}
+
+/* Animations for mobile sidebar */
+@keyframes slide-in-left {
+  from {
+    transform: translateX(-100%);
+  }
+
+  to {
+    transform: translateX(0);
+  }
+}
+
+@keyframes slide-out-left {
+  from {
+    transform: translateX(0);
+  }
+
+  to {
+    transform: translateX(-100%);
+  }
+}
+
+.animate-slide-in-left {
+  animation: slide-in-left 250ms var(--transition-smooth) forwards;
+}
+
+.animate-slide-out-left {
+  animation: slide-out-left 200ms var(--transition-smooth) forwards;
+}
+
+/* Improve touch scrolling */
+.touch-scroll {
+  -webkit-overflow-scrolling: touch;
+  scroll-behavior: smooth;
+}
+
+/* Prevent text selection during touch */
+.no-select {
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+
+/* Custom Loader Animation */
+@keyframes custom-loader-rotate {
+  from {
+    transform: rotate(0deg);
+  }
+
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.custom-loader-spin {
+  animation: custom-loader-rotate 1.5s linear infinite;
+}
+
+/* Custom Scrollbar Utility */
+.custom-scrollbar::-webkit-scrollbar {
+  width: 5px;
+  display: block;
+  /* Override global display: none if needed */
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.05);
+  border-radius: 10px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(112, 143, 150, 0.3);
+  border-radius: 10px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: rgba(112, 143, 150, 0.5);
+}
+
+/* Hide scrollbar for Chrome, Safari and Opera */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+/* Hide scrollbar for IE, Edge and Firefox */
+.no-scrollbar {
+  -ms-overflow-style: none;
+  /* IE and Edge */
+  scrollbar-width: none;
+  /* Firefox */
+}
+
+/* Optimized Mobile Responsiveness & Loading States */
+@media (max-width: 768px) {
+  .flex-responsive {
+    display: flex;
+    flex-wrap: wrap;
+  }
+
+  .text-truncate {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    display: block;
+  }
+
+  .text-truncate-2 {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+
+  .p-mobile-sm {
+    padding: 0.75rem !important;
+  }
+
+  .gap-mobile-sm {
+    gap: 0.5rem !important;
+  }
+
+  /* Ensure images don't stretch layout */
+  img,
+  svg {
+    max-width: 100%;
+    height: auto;
+  }
+}
+
+/* Base Utility for Clean Resizing */
+.max-w-screen-container {
+  width: 100%;
+  max-width: 1440px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+@layer components {
+  .skeleton-overlay {
+    @apply animate-pulse bg-neutral-200 dark:bg-neutral-800 rounded-xl;
+  }
+}
+
+/* Feature Gating: Hide features that are coming soon or incomplete */
+.feature-incomplete {
+  display: none !important;
+}

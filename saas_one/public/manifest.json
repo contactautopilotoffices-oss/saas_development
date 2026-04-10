@@ -1,0 +1,67 @@
+{
+    "id": "/",
+    "name": "Autopilot",
+    "short_name": "Autopilot",
+    "description": "Facilities that run without constant follow-ups. The operating system for modern buildings.",
+    "dir": "ltr",
+    "lang": "en",
+    "categories": [
+        "business",
+        "productivity"
+    ],
+    "icons": [
+        {
+            "src": "/android-chrome-192x192.png",
+            "sizes": "192x192",
+            "type": "image/png"
+        },
+        {
+            "src": "/android-chrome-512x512.png",
+            "sizes": "512x512",
+            "type": "image/png",
+            "purpose": "any maskable"
+        }
+    ],
+    "theme_color": "#ffffff",
+    "background_color": "#ffffff",
+    "display": "standalone",
+    "display_override": [
+        "window-controls-overlay",
+        "standalone",
+        "minimal-ui"
+    ],
+    "orientation": "portrait",
+    "start_url": "/",
+    "scope": "/",
+    "screenshots": [
+        {
+            "src": "/landing-hero-day.jpg",
+            "sizes": "1024x682",
+            "type": "image/jpeg",
+            "form_factor": "wide"
+        },
+        {
+            "src": "/landing-hero-day.jpg",
+            "sizes": "1024x682",
+            "type": "image/jpeg",
+            "form_factor": "narrow"
+        }
+    ],
+    "prefer_related_applications": false,
+    "related_applications": [],
+    "iarc_rating_id": "e84b072d-71b3-4d3e-86ae-31a8ce4e53b7",
+    "shortcuts": [
+        {
+            "name": "Dashboard",
+            "short_name": "Dash",
+            "description": "View your property dashboard",
+            "url": "/",
+            "icons": [
+                {
+                    "src": "/android-chrome-192x192.png",
+                    "sizes": "192x192"
+                }
+            ]
+        }
+    ]
+}

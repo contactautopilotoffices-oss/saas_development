@@ -1,0 +1,48 @@
+{
+  "crons": [
+    {
+      "path": "/api/cron/check-sop-reminders",
+      "schedule": "* * * * *"
+    },
+    {
+      "path": "/api/cron/check-sop-missed",
+      "schedule": "* * * * *"
+    },
+    {
+      "path": "/api/cron/check-sla",
+      "schedule": "* * * * *"
+    },
+    {
+      "path": "/api/cron/check-escalation",
+      "schedule": "* * * * *"
+    },
+    {
+      "path": "/api/cron/check-diesel",
+      "schedule": "0 * * * *"
+    },
+    {
+      "path": "/api/cron/generate-stock-reports",
+      "schedule": "0 0 * * *"
+    },
+    {
+      "path": "/api/cron/daily-whatsapp-report",
+      "schedule": "30 18 * * *"
+    },
+    {
+      "path": "/api/cron/cleanup-whatsapp-sessions",
+      "schedule": "*/30 * * * *"
+    },
+    {
+      "path": "/api/cron/process-whatsapp-queue",
+      "schedule": "* * * * *"
+    },
+    {
+      "path": "/api/cron/ppm-reminders",
+      "schedule": "30 3 * * *"
+    },
+    {
+      "path": "/api/cron/amc-expiry-alerts",
+      "schedule": "0 4 * * *"
+    }
+  ]
+}

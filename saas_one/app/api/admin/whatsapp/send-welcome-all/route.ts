@@ -1,0 +1,83 @@
+/**
+ * Send welcome WhatsApp message to all users.
+ * POST /api/admin/whatsapp/send-welcome-all
+ * Auth: Master Admin.
+ */
+
+import { NextRequest, NextResponse } from 'next/server';
+import { createClient } from '@/frontend/utils/supabase/server';
+import { supabaseAdmin } from '@/backend/lib/supabase/admin';
+import { WhatsAppService } from '@/backend/services/WhatsAppService';
+import { buildWelcomeMessage } from '@/backend/lib/whatsapp/welcomeMessage';
+
+/**
+ * POST /api/admin/whatsapp/send-welcome-all
+ *
+ * Master-admin only. Sends the welcome/onboarding WhatsApp message to all users
+ * in the database who have a valid phone number (10+ digits).
+ *
+ * Optionally accepts a custom message body with {{full_name}} placeholder
+ * substitution. Sends messages sequentially with a 1-second delay between each to
+ * respect the WaSender API rate limit.
+ *
+ * Auth: Supabase session + is_master_admin flag must be true.
+ */
+export async function POST(request: NextRequest) {
+    const supabase = await createClient();
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
+    if (authError || !user) {
+        return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    // Master admin only
+    const { data: profile } = await supabaseAdmin
+        .from('users')
+        .select('is_master_admin')
+        .eq('id', user.id)
+        .single();
+
+    if (!profile?.is_master_admin) {
+        return NextResponse.json({ error: 'Forbidden — master admin only' }, { status: 403 });
+    }
+
+    const body = await request.json().catch(() => ({}));
+    const customMessage: string | undefined = body.message;
+
+    // Fetch all users with a phone number
+    const { data: users, error: usersErr } = await supabaseAdmin
+        .from('users')
+        .select('id, full_name, phone')
+        .not('phone', 'is', null);
+
+    if (usersErr) {
+        return NextResponse.json({ error: usersErr.message }, { status: 500 });
+    }
+
+    const allUsers = (users || []).filter(u => u.phone && u.phone.trim().length >= 10);
+    const noPhoneCount = (users || []).length - allUsers.length;
+    if (allUsers.length === 0) {
+        return NextResponse.json({ sent: 0, skipped: 0, no_phone: noPhoneCount, message: 'No users with phone numbers found' });
+    }
+
+    let sent = 0;
+    let skipped = 0;
+
+    for (const u of allUsers) {
+        try {
+            const name = u.full_name || 'there';
+            const message = customMessage
+                ? customMessage.replace(/\{\{full_name\}\}/g, name)
+                : buildWelcomeMessage(name);
+
+            await WhatsAppService.sendAsync(u.phone, { message });
+            sent++;
+            // Rate limit: 1 message per second to avoid WaSender API throttling
+            if (sent < allUsers.length) await new Promise(r => setTimeout(r, 1000));
+        } catch {
+            skipped++;
+        }
+    }
+
+    return NextResponse.json({ sent, skipped, no_phone: noPhoneCount, total: (users || []).length });
+}
+
